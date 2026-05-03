@@ -4,7 +4,10 @@ import pb from '../services/pocketbase'
 import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../context/AuthContext'
 import { useLikes } from '../hooks/useLikes'
+<<<<<<< HEAD
 import { searchYouTube } from '../services/ai'
+=======
+>>>>>>> upstream/master
 
 const moodMeta = {
   Happy:   { color: '#fbbf24', emoji: '😊' },
@@ -49,6 +52,7 @@ export default function Search() {
       setLoading(true)
       setSearched(true)
       try {
+<<<<<<< HEAD
         // Use the centralized search service
         const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query + " official audio")}&type=video&maxResults=15&key=${import.meta.env.VITE_YOUTUBE_API_KEY}`;
         const res = await fetch(url);
@@ -68,12 +72,23 @@ export default function Search() {
         } else if (data.error) {
           console.error("YouTube Search API Error:", data.error.message);
         }
+=======
+        const result = await pb.collection('songs').getFullList({
+          filter: `title ~ "${query}" || artist ~ "${query}" || album ~ "${query}" || mood ~ "${query}"`,
+          requestKey: 'search-' + query,
+        })
+        setResults(result)
+>>>>>>> upstream/master
       } catch (err) {
         console.error('search error:', err)
       } finally {
         setLoading(false)
       }
+<<<<<<< HEAD
     }, 600) // Slightly longer debounce for better API performance
+=======
+    }, 300) // 300ms debounce
+>>>>>>> upstream/master
 
     return () => clearTimeout(timer)
   }, [query])

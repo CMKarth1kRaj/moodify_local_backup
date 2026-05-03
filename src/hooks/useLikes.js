@@ -19,7 +19,11 @@ export function useLikes(userId) {
       })
       setLikes(result)
     } catch (err) {
+<<<<<<< HEAD
       // Silently ignore if collection is missing to avoid spamming the console
+=======
+      console.error('fetchLikes error:', err)
+>>>>>>> upstream/master
     } finally {
       setLoading(false)
     }

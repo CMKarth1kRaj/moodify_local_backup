@@ -4,7 +4,10 @@ import pb from '../services/pocketbase'
 import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../context/AuthContext'
 import { useLikes } from '../hooks/useLikes'
+<<<<<<< HEAD
 import { getGeminiProactivePlaylist, searchYouTube } from '../services/ai'
+=======
+>>>>>>> upstream/master
 
 const moodMeta = {
   Happy:   { color: '#fbbf24', emoji: '😊', bg: 'rgba(251,191,36,0.08)' },
@@ -68,6 +71,7 @@ useEffect(() => {
 }, [])
 
   useEffect(() => {
+<<<<<<< HEAD
     const fetchAISongs = async () => {
       try {
         setLoading(true)
@@ -92,11 +96,27 @@ useEffect(() => {
         setSongs(resolved)
       } catch (err) {
         console.error("AI Playlist Error:", err)
+=======
+    const fetchSongs = async () => {
+      try {
+        setLoading(true)
+        const result = await pb.collection('songs').getFullList({
+          filter: mood ? `mood = "${mood}"` : '',
+          requestKey: 'fetch-playlist-' + mood,
+        })
+        setSongs(result)
+      } catch (err) {
+        console.error(err)
+>>>>>>> upstream/master
       } finally {
         setLoading(false)
       }
     }
+<<<<<<< HEAD
     fetchAISongs()
+=======
+    fetchSongs()
+>>>>>>> upstream/master
   }, [mood])
 
   const handlePlay = (i) => {

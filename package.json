@@ -10,12 +10,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+<<<<<<< HEAD
     "@google/generative-ai": "^0.24.1",
+=======
+>>>>>>> upstream/master
     "axios": "^1.15.2",
     "pocketbase": "^0.26.8",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+<<<<<<< HEAD
     "react-player": "^3.4.0",
+=======
+>>>>>>> upstream/master
     "react-router-dom": "^7.14.2"
   },
   "devDependencies": {

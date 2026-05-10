@@ -1,112 +1,95 @@
-# 🎵 Moodify — AI-Powered Music Streaming App
+# 🎵 Moodify: AI-Native Social Music Platform
 
-Moodify is a mood-based music streaming web app built with **React + Vite** and **PocketBase** as the backend. Pick a vibe, get a playlist, jam with friends in real time, and let the AI recommend songs based on your listening history.
+Moodify is a next-generation music streaming experience that blends **Gemini-powered emotional discovery** with **real-time social listening**. Built for the modern listener, it transforms natural language descriptions and voice commands into perfectly curated soundscapes.
+
+![Moodify Hero](./prjcvr.png)
 
 ---
 
-## ✨ Features
+## ✨ Premium Features
 
-- 🎭 **Mood-based playlists** — Choose from 8 moods: Happy, Chill, Sad, Workout, Focus, Party, Romance, Hype
-- 🤖 **AI Recommendations** — Smart suggestions based on your listening history
-- 🎧 **Full Music Player** — Seek bar, queue, LRCLIB synced lyrics
-- ❤️ **Liked Songs** — Heart songs and access them from one place
-- 📚 **Library** — Create, manage, and delete your own playlists
-- 🔍 **Search** — Real-time search with 300ms debounce
-- 🟢 **Jam Sessions** — Listen live with friends in sync, with chat, reactions, and queue
-- 📜 **Listening History** — Every song you play is tracked automatically
-- 👤 **User Accounts** — Auth via PocketBase with display name
+*   **🎙️ Mood Microphone**: A voice-activated discovery engine using the SpeechRecognition API and **Gemini 2.5 Flash** to generate custom 10-track playlists based on your current vibe.
+*   **🤝 Jam Sessions**: Real-time collaborative listening rooms with **100ms heartbeat synchronization**, 3-second drift correction, and live member chat.
+*   **🎨 Dynamic Art Engine**: AI-generated playlists receive unique, high-resolution visual identities dynamically sourced from **Unsplash** based on AI aesthetic terms.
+*   **📊 Bento Dashboard**: A sleek, modular interface visualizing your top artists, listening time, and recent activity at a glance.
+*   **🎤 Synced Player**: Full music player featuring a seek bar, queue management, and **LRCLIB time-synced lyrics**.
+*   **🎭 8 Defined Moods**: Optimized for `Happy`, `Chill`, `Sad`, `Workout`, `Focus`, `Party`, `Romance`, and `Hype`.
+
+---
+
+## 🎨 UI/UX Design System
+
+Moodify follows a **Premium Modern Aesthetic** built on a strict design system defined in `src/index.css`.
+
+### 1. Typography & Hierarchy
+*   **Primary Typeface**: `Outfit` (sans-serif) via Google Fonts.
+*   **Weight Scale**: From 300 (Light) to 900 (Black).
+*   **Letter Spacing**: `-0.04em` for headings; `0.05em` for uppercase meta-tags.
+
+### 2. Color Palette & Theming
+The UI supports a high-contrast Light/Dark mode with consistent terracotta/orange accents.
+*   **Light Theme**: `--bg`: `#FAFAFA` | `--text-primary`: `#18181B` | `--accent`: `#E05A33` (Terracotta)
+*   **Dark Theme**: `--bg`: `#09090B` | `--text-primary`: `#FAFAFA` | `--accent`: `#F97316` (Vibrant Orange)
+*   **Glassmorphism**: `rgba(24, 24, 27, 0.75)` with `16px` backdrop blur for players and overlays.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React 18 + Vite |
-| Routing | react-router-dom |
-| Backend | PocketBase (self-hosted) |
-| Styling | Inline styles + CSS variables (no Tailwind) |
-| Fonts | Syne (headings) + DM Sans (body) — Google Fonts |
+| Layer | Technology |
+| :--- | :--- |
+| **Frontend** | React 19 + Vite |
+| **Backend** | PocketBase (Go-based, real-time subscriptions) |
+| **AI Model** | Google Gemini 2.5 Flash |
+| **Audio Engine** | React Player (YouTube Data API v3) |
+| **Styling** | Vanilla CSS (Premium Modern Design System) |
+| **Typography** | 'Outfit' (sans-serif) — Google Fonts |
 
 ---
 
 ## 📦 Prerequisites
 
-- **Node.js** v18+ — [Download](https://nodejs.org)
-- **PocketBase** executable — [Download](https://pocketbase.io/docs/)
+*   **Node.js** v18+ — [Download](https://nodejs.org)
+*   **PocketBase** executable — [Download](https://pocketbase.io/docs/)
+*   **API Keys**: Google Gemini & YouTube Data API v3
 
 ---
 
 ## 🚀 How to Run Locally
 
 ### 1. Clone the repo
-
 ```bash
-git clone https://github.com/talikotaharish1-arch/moodify_Hrsh.git
-cd moodify_Hrsh
+git clone https://github.com/CMKarth1kRaj/Moodify.git
+cd Moodify
 ```
 
 ### 2. Set up PocketBase
-
-1. Download `pocketbase.exe` from https://pocketbase.io/docs/
-2. Place it inside the `backend/` folder:
-   ```
-   moodify_Hrsh/
-   └── backend/
-       └── pocketbase.exe   ← place here
-   ```
-3. Start PocketBase:
-   ```bash
-   # Windows
-   cd backend
-   pocketbase.exe serve
-
-   # Mac / Linux
-   cd backend
-   ./pocketbase serve
-   ```
-4. Open the admin panel at **http://127.0.0.1:8090/_/**
-5. Create your admin account on first launch
+1.  Download `pocketbase.exe` and place it in the `/backend` folder.
+2.  Start the server: `cd backend && ./pocketbase serve`.
+3.  **Schema Import (Recommended)**: In the PocketBase Admin Panel (**http://127.0.0.1:8090/_/**), go to **Settings > Import Collections** and upload the `pb_schema.json` file located in the `/backend` folder.
 
 ---
 
-### 3. Create PocketBase Collections
-
-In the admin panel, create these collections with **exact** names and fields:
-
-#### `users` (built-in Auth collection)
-- `name` — Plain text
+### 3. Database Collections (Manual Setup Ref)
+If not using the schema import, create these collections with these fields:
 
 #### `songs`
 | Field | Type |
 |-------|------|
 | title | Plain text |
 | artist | Plain text |
-| album | Plain text |
-| duration | Number |
-| mood | Plain text (e.g. `Chill`, `Happy`) |
 | cover_url | URL |
 | audio_url | URL |
+| duration | Number |
+| mood | Plain text (e.g. `Chill`, `Happy`) |
 
-#### `Playlist` *(capital P — required)*
+#### `Playlist` *(Capital P — Case Sensitive)*
 | Field | Type |
 |-------|------|
 | name | Plain text |
 | mood | Plain text |
 | user | Relation → users (single) |
 | songs | Relation → songs (multiple) |
-
-#### `likes`
-| Field | Type |
-|-------|------|
-| user | Relation → users (single) |
-| song | Relation → songs (single) |
-
-#### `history`
-| Field | Type |
-|-------|------|
-| user | Relation → users (single) |
-| song | Relation → songs (single) |
 
 #### `jam_rooms`
 | Field | Type |
@@ -118,41 +101,21 @@ In the admin panel, create these collections with **exact** names and fields:
 | listeners | Number |
 | playback_position | Number |
 | is_playing | Bool |
-| queue_songs | Relation → songs (multiple) |
-
-#### `messages`
-| Field | Type |
-|-------|------|
-| room | Relation → jam_rooms (single) |
-| user | Relation → users (single) |
-| text | Plain text |
-| type | Plain text (optional) |
-
-#### ⚠️ API Rules — set for ALL collections:
-```
-List   → @request.auth.id != ""
-View   → @request.auth.id != ""
-Create → @request.auth.id != ""
-Update → @request.auth.id != ""
-Delete → @request.auth.id != ""
-```
 
 ---
 
-### 4. Install frontend dependencies
-
-```bash
-# From the project root
-npm install
+### 4. Environment Variables
+Create a `.env` file in the root:
+```env
+VITE_GEMINI_API_KEY=your_gemini_key
+VITE_YOUTUBE_API_KEY=your_youtube_key
 ```
 
-### 5. Start the frontend dev server
-
+### 5. Launch Frontend
 ```bash
+npm install
 npm run dev
 ```
-
-Open **http://localhost:5173** in your browser.
 
 ---
 
@@ -161,58 +124,83 @@ Open **http://localhost:5173** in your browser.
 ```
 moodify/
 ├── backend/
-│   └── pocketbase.exe          # Download separately — NOT in repo
+│   ├── pb_schema.json          # Instant collection setup
+│   └── pocketbase.exe          # Backend binary
 ├── src/
-│   ├── components/
-│   │   ├── MiniPlayer.jsx      # Persistent bottom player bar
-│   │   └── ProtectedRoute.jsx
-│   ├── context/
-│   │   ├── AuthContext.jsx     # Login / auth state
-│   │   └── PlayerContext.jsx   # Audio engine + history tracking
-│   ├── hooks/
-│   │   ├── useLikes.js         # Like / unlike songs
-│   │   └── useRecommendations.js  # AI mood-based recommendations
-│   ├── pages/
-│   │   ├── Login.jsx
-│   │   ├── Dashboard.jsx       # Home — recommendations, trending, featured
-│   │   ├── Playlist.jsx        # Songs filtered by mood
-│   │   ├── Player.jsx          # Full player with LRCLIB lyrics
-│   │   ├── LikedSongs.jsx
-│   │   ├── Search.jsx
-│   │   ├── Library.jsx
-│   │   └── JamSession.jsx      # Real-time listening rooms
-│   └── services/
-│       └── pocketbase.js       # PocketBase client instance
-├── .gitignore
-├── index.html
-├── package.json
-└── vite.config.js
+│   ├── components/             # Reusable UI (Sidebar, Player, etc.)
+│   ├── context/                # AuthContext, PlayerContext
+│   ├── hooks/                  # useLikes, useMobileNav
+│   ├── pages/                  # Dashboard, JamSession, Playlist, etc.
+│   ├── services/               # ai.js (Gemini), pocketbase.js
+│   └── index.css               # Design system & design tokens
+├── project_brief.md            # Deep architecture documentation
+└── README.md
 ```
 
 ---
 
-## 🎨 Design System
+## 🔄 Feature Workflows
 
-| Variable | Value | Usage |
-|----------|-------|-------|
-| `--bg` | `#06070f` | Page background |
-| `--cyan` | `#00d4ff` | Primary accent |
-| `--purple` | `#a855f7` | Secondary accent |
-| `--coral` | `#ff6b6b` | Highlight |
+### 1. AI Mood Playlist Generation
+```mermaid
+graph TD
+    A[User taps Mood Microphone] --> B{Input Type?}
+    B -- Voice --> C[SpeechRecognition API]
+    B -- Text --> D[Manual Input]
+    C --> E[Mood Description String]
+    D --> E
+    E --> F[Fetch Context: 10 Recent + 20 Liked]
+    F --> G[Prompt Gemini 2.5 Flash]
+    G --> H[JSON: 10 Songs + Aesthetic Term]
+    H --> I[Fetch 800x800 Unsplash Cover]
+    I --> J[Search YouTube API for Audio]
+    J --> K[Render Dynamic Playlist Page]
+```
 
-Dark glassmorphism theme with animated ambient orbs, gradient text, and micro-animations.
+### 2. Jam Session Synchronization
+```mermaid
+graph TD
+    subgraph Host
+    H1[Host Plays Song] --> H2[Update DB: is_playing=true]
+    H2 --> H3[100ms Interval Update: playback_position]
+    end
+
+    subgraph Listener
+    L1[Real-time Subscribe to Room] --> L2[Detect Drift > 3s]
+    L2 --> L3[Force seekTo Host Position]
+    L1 --> L4[Detect Song Change]
+    L4 --> L5[Load New Song via YouTube]
+    end
+
+    H3 -. Real-time Subscription .-> L1
+```
 
 ---
 
 ## 📝 Important Notes
 
-- `pocketbase.exe` is **not included** — download from [pocketbase.io](https://pocketbase.io/docs/) and place in `backend/`
-- Mood field values must start with a **capital letter** — e.g. `Chill` not `chill`
-- The playlist collection name is **`Playlist`** with a capital P — always
-- `React.StrictMode` is intentionally **removed** to prevent PocketBase request abort errors
+*   **Mood field values** must start with a **Capital Letter** — e.g., `Chill` not `chill`.
+*   The playlist collection name is **`Playlist`** with a capital P — this is required for the code to function.
+*   `React.StrictMode` is intentionally **removed** to prevent redundant PocketBase subscription cancellations.
+*   **Search performance**: Optimized with a **300ms debounce** to minimize API overhead.
 
 ---
 
-## 👤 Author
+## 🚀 Roadmap
+- [ ] **AI DJ Narrator**: Context-aware tracks introductions.
+- [ ] **Karaoke Mode**: Real-time lyrics with vocal removal.
+- [ ] **Mood Heatmap**: 30-day emotional trend visualization.
+- [ ] **AI Music Generation**: Integration with models for prompt-based track creation.
 
-Built by **Harish** — [@talikotaharish1-arch](https://github.com/talikotaharish1-arch)
+---
+
+## 👥 Authors
+
+Built with ❤️ by:
+*   **CM Karthik Raj** — [@CMKarth1kRaj](https://github.com/CMKarth1kRaj)
+*   **Harish** — [@talikotaharish1-arch](https://github.com/talikotaharish1-arch)
+
+---
+
+## 📐 Architecture & Design
+For more exhaustive details on database models and design tokens, please refer to our **[Project Brief](./project_brief.md)**.

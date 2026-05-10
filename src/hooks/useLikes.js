@@ -13,17 +13,13 @@ export function useLikes(userId) {
   const fetchLikes = async () => {
     try {
       const result = await pb.collection('likes').getFullList({
-        filter: `user = "${userId}"`,
+        filter: `user = '${userId}'`,
         expand: 'song',
         requestKey: 'fetch-likes-' + userId,
       })
       setLikes(result)
     } catch (err) {
-<<<<<<< HEAD
       // Silently ignore if collection is missing to avoid spamming the console
-=======
-      console.error('fetchLikes error:', err)
->>>>>>> upstream/master
     } finally {
       setLoading(false)
     }

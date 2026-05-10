@@ -1,80 +1,530 @@
 [
   {
+    "id": "pbc_3142635823",
+    "listRule": null,
+    "viewRule": null,
+    "createRule": null,
+    "updateRule": null,
+    "deleteRule": null,
+    "name": "_superusers",
+    "type": "auth",
+    "fields": [
+      {
+        "autogeneratePattern": "[a-z0-9]{15}",
+        "help": "",
+        "hidden": false,
+        "id": "text3208210256",
+        "max": 15,
+        "min": 15,
+        "name": "id",
+        "pattern": "^[a-z0-9]+$",
+        "presentable": false,
+        "primaryKey": true,
+        "required": true,
+        "system": true,
+        "type": "text"
+      },
+      {
+        "cost": 0,
+        "help": "",
+        "hidden": true,
+        "id": "password901924565",
+        "max": 0,
+        "min": 8,
+        "name": "password",
+        "pattern": "",
+        "presentable": false,
+        "required": true,
+        "system": true,
+        "type": "password"
+      },
+      {
+        "autogeneratePattern": "[a-zA-Z0-9]{50}",
+        "help": "",
+        "hidden": true,
+        "id": "text2504492774",
+        "max": 60,
+        "min": 30,
+        "name": "tokenKey",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": true,
+        "system": true,
+        "type": "text"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "email3885137012",
+        "name": "email",
+        "presentable": false,
+        "required": true,
+        "system": true,
+        "type": "email"
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX `__superusers_email_idx` ON `_superusers` (`email`)"
+    ],
+    "system": true
+  },
+  {
+    "id": "users0000000001",
+    "name": "users",
+    "type": "auth",
+    "system": false,
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "text901924565",
+        "name": "name",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": true
+      },
+      {
+        "id": "file376483556",
+        "name": "avatar",
+        "type": "file",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "maxSelect": 1,
+        "maxSize": 5242880,
+        "mimeTypes": ["image/jpeg", "image/png", "image/svg+xml", "image/gif", "image/webp"],
+        "thumbs": []
+      }
+    ],
+    "indexes": [],
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": "",
+    "updateRule": "id = @request.auth.id",
+    "deleteRule": "id = @request.auth.id"
+  },
+  {
     "id": "songs0000000001",
     "name": "songs",
     "type": "base",
     "system": false,
-    "schema": [
-      { "id": "f1", "name": "title", "type": "text", "required": true },
-      { "id": "f2", "name": "artist", "type": "text", "required": true },
-      { "id": "f3", "name": "audio_url", "type": "url", "required": true },
-      { "id": "f4", "name": "cover_url", "type": "url" },
-      { "id": "f5", "name": "mood", "type": "text" }
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "text1",
+        "name": "title",
+        "type": "text",
+        "system": false,
+        "required": true,
+        "presentable": true
+      },
+      {
+        "id": "text2",
+        "name": "artist",
+        "type": "text",
+        "system": false,
+        "required": true,
+        "presentable": true
+      },
+      {
+        "id": "url1",
+        "name": "cover_url",
+        "type": "url",
+        "system": false,
+        "required": false,
+        "presentable": false
+      },
+      {
+        "id": "url2",
+        "name": "audio_url",
+        "type": "url",
+        "system": false,
+        "required": true,
+        "presentable": false
+      },
+      {
+        "id": "num1",
+        "name": "duration",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false
+      },
+      {
+        "id": "text3",
+        "name": "mood",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": false
+      }
     ],
-    "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
-    "options": {}
+    "indexes": [],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "@request.auth.id != ''"
   },
   {
-    "id": "playlist000001",
+    "id": "playlists00001",
     "name": "Playlist",
     "type": "base",
     "system": false,
-    "schema": [
-      { "id": "p1", "name": "name", "type": "text", "required": true },
-      { "id": "p2", "name": "mood", "type": "text" },
-      { "id": "p3", "name": "user", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "maxSelect": 1 } },
-      { "id": "p4", "name": "songs", "type": "relation", "options": { "collectionId": "songs0000000001", "maxSelect": null } }
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "text4",
+        "name": "name",
+        "type": "text",
+        "system": false,
+        "required": true,
+        "presentable": true
+      },
+      {
+        "id": "text5",
+        "name": "mood",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": false
+      },
+      {
+        "id": "rel1",
+        "name": "user",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "users0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "rel2",
+        "name": "songs",
+        "type": "relation",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "collectionId": "songs0000000001",
+        "maxSelect": 999,
+        "cascadeDelete": false
+      }
     ],
-    "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
-    "options": {}
+    "indexes": [],
+    "listRule": "user = @request.auth.id",
+    "viewRule": "user = @request.auth.id",
+    "createRule": "user = @request.auth.id",
+    "updateRule": "user = @request.auth.id",
+    "deleteRule": "user = @request.auth.id"
   },
   {
     "id": "likes0000000001",
     "name": "likes",
     "type": "base",
     "system": false,
-    "schema": [
-      { "id": "l1", "name": "user", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "maxSelect": 1 } },
-      { "id": "l2", "name": "song", "type": "text" }
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "rel3",
+        "name": "user",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "users0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "rel_song_likes",
+        "name": "song",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "songs0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      }
     ],
-    "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
-    "options": {}
+    "indexes": [],
+    "listRule": "user = @request.auth.id",
+    "viewRule": "user = @request.auth.id",
+    "createRule": "user = @request.auth.id",
+    "updateRule": "user = @request.auth.id",
+    "deleteRule": "user = @request.auth.id"
   },
   {
     "id": "history0000001",
     "name": "history",
     "type": "base",
     "system": false,
-    "schema": [
-      { "id": "h1", "name": "user", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "maxSelect": 1 } },
-      { "id": "h2", "name": "song", "type": "text" }
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "rel4",
+        "name": "user",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "users0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "rel_song_history",
+        "name": "song",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "songs0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      }
     ],
-    "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
-    "options": {}
+    "indexes": [],
+    "listRule": "user = @request.auth.id",
+    "viewRule": "user = @request.auth.id",
+    "createRule": "user = @request.auth.id",
+    "updateRule": "user = @request.auth.id",
+    "deleteRule": "user = @request.auth.id"
   },
   {
     "id": "jamrooms000001",
     "name": "jam_rooms",
     "type": "base",
     "system": false,
-    "schema": [
-      { "id": "j1", "name": "name", "type": "text" },
-      { "id": "j2", "name": "is_live", "type": "bool" },
-      { "id": "j3", "name": "listeners", "type": "number" }
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "text9",
+        "name": "name",
+        "type": "text",
+        "system": false,
+        "required": true,
+        "presentable": true
+      },
+      {
+        "id": "rel_host",
+        "name": "host",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "users0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "rel_current_song",
+        "name": "current_songs",
+        "type": "relation",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "collectionId": "songs0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": false
+      },
+      {
+        "id": "bool1",
+        "name": "is_live",
+        "type": "bool",
+        "system": false,
+        "required": false,
+        "presentable": false
+      },
+      {
+        "id": "bool2",
+        "name": "is_playing",
+        "type": "bool",
+        "system": false,
+        "required": false,
+        "presentable": false
+      },
+      {
+        "id": "num1",
+        "name": "listeners",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false
+      },
+      {
+        "id": "num2",
+        "name": "playback_position",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false
+      }
     ],
-    "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
-    "options": {}
+    "indexes": [],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": "@request.auth.id != ''",
+    "deleteRule": "host = @request.auth.id"
   },
   {
     "id": "messages000001",
     "name": "messages",
     "type": "base",
     "system": false,
-    "schema": [
-      { "id": "m1", "name": "user", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "maxSelect": 1 } },
-      { "id": "m2", "name": "text", "type": "text" }
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "rel_room",
+        "name": "room",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "jamrooms000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "rel5",
+        "name": "user",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "users0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "text10",
+        "name": "text",
+        "type": "text",
+        "system": false,
+        "required": true,
+        "presentable": false
+      }
     ],
-    "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
-    "options": {}
+    "indexes": [],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": null,
+    "deleteRule": null
+  },
+  {
+    "id": "typing00000001",
+    "name": "typing",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "id": "text3208210256",
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "required": true,
+        "presentable": false,
+        "primaryKey": true,
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "rel_t_user",
+        "name": "user",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "users0000000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      },
+      {
+        "id": "rel_t_room",
+        "name": "room",
+        "type": "relation",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "collectionId": "jamrooms000001",
+        "maxSelect": 1,
+        "cascadeDelete": true
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX `typing_user_room_idx` ON `typing` (`user`, `room`)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "@request.auth.id != ''",
+    "updateRule": null,
+    "deleteRule": "user = @request.auth.id"
   }
 ]

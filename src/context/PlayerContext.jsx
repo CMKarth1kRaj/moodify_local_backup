@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
 import pb from '../services/pocketbase'
 
@@ -12,7 +11,21 @@ export function PlayerProvider({ children }) {
   const [duration, setDuration] = useState(0)
   const playerRef = useRef(null)
 
+  const [shuffle, setShuffle] = useState(false)
+  const [repeat, setRepeat] = useState(false)
+  const [muted, setMuted] = useState(false)
+  const [likes, setLikes] = useState([])
+
   const currentSong = currentIdx !== null ? queue[currentIdx] : null
+
+  // Fetch likes on mount
+  useEffect(() => {
+    if (pb.authStore.isValid) {
+      pb.collection('likes').getFullList({ filter: `user = '${pb.authStore.model.id}'` })
+        .then(setLikes)
+        .catch(() => {})
+    }
+  }, [pb.authStore.isValid])
 
   const playSong = (songs, idx) => {
     setQueue(songs)
@@ -20,17 +33,52 @@ export function PlayerProvider({ children }) {
     setPlaying(true)
   }
 
+
+
   const togglePlay = () => setPlaying(!playing)
+  const toggleShuffle = () => setShuffle(!shuffle)
+  const toggleRepeat = () => setRepeat(!repeat)
+  const toggleMute = () => setMuted(!muted)
+
+  const isLiked = (songId) => likes.some(l => l.song === songId)
+
+  const toggleLike = async (songId) => {
+    if (!pb.authStore.isValid) return
+    const existing = likes.find(l => l.song === songId)
+    if (existing) {
+      try {
+        await pb.collection('likes').delete(existing.id)
+        setLikes(prev => prev.filter(l => l.id !== existing.id))
+      } catch (e) {}
+    } else {
+      try {
+        const res = await pb.collection('likes').create({ user: pb.authStore.model.id, song: songId })
+        setLikes(prev => [...prev, res])
+      } catch (e) {}
+    }
+  }
 
   const next = () => {
-    if (currentIdx < queue.length - 1) setCurrentIdx(currentIdx + 1)
+    if (repeat) {
+      playerRef.current?.seekTo(0)
+      playerRef.current?.playVideo()
+      return
+    }
+    if (shuffle) {
+      const nextIdx = Math.floor(Math.random() * queue.length)
+      setCurrentIdx(nextIdx)
+    } else if (currentIdx < queue.length - 1) {
+      setCurrentIdx(currentIdx + 1)
+    } else {
+      setPlaying(false)
+    }
   }
 
   const prev = () => {
     if (currentIdx > 0) setCurrentIdx(currentIdx - 1)
   }
 
-  // ── Native YouTube IFrame API ──
+  // Native YouTube IFrame API
   useEffect(() => {
     if (!currentSong) return;
 
@@ -41,7 +89,6 @@ export function PlayerProvider({ children }) {
     let ytPlayer;
 
     const initPlayer = () => {
-      // Destroy existing if needed (though we rebuild the div below)
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
       }
@@ -59,6 +106,8 @@ export function PlayerProvider({ children }) {
           onReady: (e) => {
             playerRef.current = e.target;
             setDuration(e.target.getDuration());
+            if (muted) e.target.mute();
+            else e.target.unMute();
             if (playing) e.target.playVideo();
           },
           onStateChange: (e) => {
@@ -85,13 +134,16 @@ export function PlayerProvider({ children }) {
     };
   }, [currentSong?.audio_url]);
 
-  // Handle play/pause commands
+  // Handle play/pause & mute commands
   useEffect(() => {
-    if (playerRef.current && playerRef.current.playVideo) {
-      if (playing) playerRef.current.playVideo();
-      else playerRef.current.pauseVideo();
+    if (playerRef.current) {
+      if (playing) playerRef.current.playVideo?.();
+      else playerRef.current.pauseVideo?.();
+      
+      if (muted) playerRef.current.mute?.();
+      else playerRef.current.unMute?.();
     }
-  }, [playing]);
+  }, [playing, muted]);
 
   // Progress timer
   useEffect(() => {
@@ -125,12 +177,17 @@ export function PlayerProvider({ children }) {
     setPlaying(false)
     setProgress(0)
     setDuration(0)
-    if (playerRef.current && playerRef.current.destroy) {
-      playerRef.current.destroy();
+    if (playerRef.current) {
+      try {
+        if (playerRef.current.destroy) playerRef.current.destroy();
+      } catch (e) {
+        console.warn("Player cleanup failed", e);
+      }
+      playerRef.current = null;
     }
   }
 
-  // ── History tracking ──
+  // History tracking
   useEffect(() => {
     if (currentIdx === null || !queue[currentIdx] || !pb.authStore.isValid) return
     const song = queue[currentIdx]
@@ -139,15 +196,64 @@ export function PlayerProvider({ children }) {
         await pb.collection('history').create({
           user: pb.authStore.model.id,
           song: song.id || '', 
-          song_title: song.title 
         }, { requestKey: `hist-${Date.now()}` })
       } catch (e) {}
     }, 5000)
     return () => clearTimeout(timer)
   }, [currentIdx, queue])
 
+  // Real-time Stats Syncing (Batch)
+  const lastSyncRef = useRef(0)
+  const pendingSecondsRef = useRef(0)
+
+  useEffect(() => {
+    if (!playing || !currentSong || !pb.authStore.isValid) return
+
+    const interval = setInterval(async () => {
+      pendingSecondsRef.current += 1
+      
+      // Batch sync every 10 seconds
+      if (pendingSecondsRef.current >= 10) {
+        const secondsToSync = pendingSecondsRef.current
+        pendingSecondsRef.current = 0
+        
+        try {
+          const userId = pb.authStore.model.id
+          let stats;
+          
+          try {
+            stats = await pb.collection('user_stats').getFirstListItem(`user="${userId}"`)
+            await pb.collection('user_stats').update(stats.id, {
+              'total_listening_time+': secondsToSync,
+              'last_song': currentSong.id,
+              'favorite_artist': currentSong.artist, // Simple logic: last played artist for now
+            })
+          } catch (err) {
+            // Create stats record if it doesn't exist
+            await pb.collection('user_stats').create({
+              user: userId,
+              total_listening_time: secondsToSync,
+              last_song: currentSong.id,
+              favorite_artist: currentSong.artist
+            })
+          }
+        } catch (e) {
+          // If sync fails, add back to pending
+          pendingSecondsRef.current += secondsToSync
+        }
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [playing, currentSong?.id])
+
   return (
-    <PlayerContext.Provider value={{ queue, currentSong, currentIdx, playing, progress, duration, playSong, togglePlay, next, prev, seek, seekTo, clearPlayer }}>
+    <PlayerContext.Provider value={{ 
+      queue, currentSong, currentIdx, playing, progress, duration, 
+      shuffle, repeat, likes, muted,
+      playSong, togglePlay, setPlaying, toggleShuffle, toggleRepeat, toggleLike, isLiked, toggleMute,
+      next, prev, seek, seekTo, clearPlayer 
+    }}>
       {children}
       {currentSong && (
         <div style={{ position: 'fixed', left: '-10000px', top: 0, width: '320px', height: '180px', pointerEvents: 'none' }}>
@@ -159,125 +265,3 @@ export function PlayerProvider({ children }) {
 }
 
 export const usePlayer = () => useContext(PlayerContext)
-=======
-import { createContext, useContext, useState, useRef, useEffect } from 'react'
-import pb from '../services/pocketbase'
-
-const PlayerContext = createContext()
-
-export function PlayerProvider({ children }) {
-  const [queue, setQueue] = useState([])
-  const [currentIdx, setCurrentIdx] = useState(null)
-  const [playing, setPlaying] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const audioRef = useRef(null)
-
-  const currentSong = currentIdx !== null ? queue[currentIdx] : null
-
-  useEffect(() => {
-    if (currentSong?.audio_url) {
-      if (audioRef.current) {
-        audioRef.current.pause()
-      }
-      audioRef.current = new Audio(currentSong.audio_url)
-      audioRef.current.play()
-      setPlaying(true)
-      setProgress(0)
-      audioRef.current.ontimeupdate = () => {
-        setProgress(audioRef.current.currentTime)
-      }
-      audioRef.current.onloadedmetadata = () => {
-        setDuration(audioRef.current.duration)
-      }
-      audioRef.current.onended = () => {
-        next()
-      }
-    }
-  }, [currentIdx, queue])
-
-  // ── History tracking ──────────────────────────────────────────
-  // Wait 2s before saving so skipping songs doesn't spam the DB
-  useEffect(() => {
-    if (currentIdx === null || !queue[currentIdx]) return
-    const song = queue[currentIdx]
-    if (!pb.authStore.isValid) return
-
-    const timer = setTimeout(async () => {
-      try {
-        await pb.collection('history').create({
-          user: pb.authStore.model.id,
-          song: song.id,
-        }, { requestKey: `history-${song.id}-${Date.now()}` })
-      } catch {
-        // silently ignore — history is non-critical
-      }
-    }, 2000)
-
-    return () => clearTimeout(timer)
-  }, [currentIdx, queue])
-
-  const playSong = (songs, idx) => {
-    setQueue(songs)
-    setCurrentIdx(idx)
-  }
-
-  const togglePlay = () => {
-    if (playing) {
-      audioRef.current?.pause()
-    } else {
-      audioRef.current?.play()
-    }
-    setPlaying(!playing)
-  }
-
-  const next = () => {
-    setCurrentIdx(i => (i < queue.length - 1 ? i + 1 : i))
-  }
-
-  const prev = () => {
-    setCurrentIdx(i => (i > 0 ? i - 1 : i))
-  }
-
-  const seek = (e, el) => {
-    const rect = el.getBoundingClientRect()
-    const newTime = ((e.clientX - rect.left) / rect.width) * duration
-    if (audioRef.current) audioRef.current.currentTime = newTime
-    setProgress(newTime)
-  }
-
-  const seekTo = (seconds) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = seconds
-      setProgress(seconds)
-    }
-  }
-
-  const clearPlayer = () => {
-  if (audioRef.current) {
-    audioRef.current.pause()
-    audioRef.current = null
-  }
-  setQueue([])
-  setCurrentIdx(null)
-  setPlaying(false)
-  setProgress(0)
-  setDuration(0)
-  sessionStorage.removeItem('moodify_queue')
-  sessionStorage.removeItem('moodify_idx')
-}
-
-  useEffect(() => {
-    window.__moodifySeek = seekTo
-  }, [])
-
-  return (
-    <PlayerContext.Provider value={{ queue, currentSong, currentIdx, playing, progress, duration, playSong, togglePlay, next, prev, seek, seekTo, clearPlayer }}>      {children}
-    </PlayerContext.Provider>
-  )
-}
-
-export function usePlayer() {
-  return useContext(PlayerContext)
-}
->>>>>>> upstream/master

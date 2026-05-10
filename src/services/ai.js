@@ -43,6 +43,66 @@ export async function getGeminiProactivePlaylist(mood) {
 /**
  * Searches YouTube for a song and returns the first video URL and metadata.
  */
+/**
+ * Uses Gemini to create a personalized playlist from a free-text mood description.
+ * Takes user context (liked artists, recently played) for better recommendations.
+ * Returns an array of { title, artist }
+ */
+export async function getMoodPlaylist(moodDescription, userContext = {}) {
+  if (!model) {
+    console.error("Gemini API key missing!");
+    return [];
+  }
+
+  const { likedArtists = [], recentSongs = [], favoriteGenres = [] } = userContext;
+
+  let contextBlock = '';
+  if (likedArtists.length > 0) {
+    contextBlock += `\nThe user frequently listens to these artists: ${likedArtists.slice(0, 8).join(', ')}.`;
+  }
+  if (recentSongs.length > 0) {
+    contextBlock += `\nRecently played songs: ${recentSongs.slice(0, 5).map(s => `"${s.title}" by ${s.artist}`).join(', ')}.`;
+  }
+  if (favoriteGenres.length > 0) {
+    contextBlock += `\nFavorite genres: ${favoriteGenres.join(', ')}.`;
+  }
+
+  const prompt = `You are a music curator AI. A user described their current mood as: "${moodDescription}"
+${contextBlock}
+
+Based on this mood and their music taste, suggest 10 real, popular songs that perfectly match how they feel.
+Prioritize songs from artists they already like or similar artists, but also include a couple fresh discoveries.
+Also, generate a catchy, creative title for this playlist, and a single word or short phrase that describes the visual aesthetic for the cover art (e.g. "neon lights", "rainy window", "sunset beach").
+
+Return ONLY a valid JSON object with the following structure:
+{
+  "playlistTitle": "String",
+  "coverSearchTerm": "String",
+  "songs": [{"title": "Song Name", "artist": "Artist Name"}]
+}
+Do not include any other text or explanation.`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let text = response.text().trim();
+    
+    // Find the first { and the last } to extract the JSON
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      text = text.substring(firstBrace, lastBrace + 1);
+    }
+
+    const parsed = JSON.parse(text);
+    return parsed;
+  } catch (error) {
+    console.error("Gemini Mood Parse Error:", error);
+    return { playlistTitle: `${moodDescription} Vibes`, coverSearchTerm: moodDescription, songs: [] };
+  }
+}
+
 export async function searchYouTube(query) {
   if (!YOUTUBE_KEY) return null;
   

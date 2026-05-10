@@ -1,371 +1,505 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { usePlayer } from '../context/PlayerContext'
-import { useRecommendations } from '../hooks/useRecommendations'
+import { useMobileNav } from '../context/MobileNavContext'
+import Sidebar from '../components/Sidebar'
 import pb from '../services/pocketbase'
+import {
+  Search,
+  Bell,
+  Menu,
+  ChevronRight,
+  Heart,
+  Music,
+  Headphones,
+  Mic,
+  Mic2,
+  ListMusic,
+  Clock,
+  Send,
+} from 'lucide-react'
 
-const moods = [
-  { label: 'Happy',   emoji: '😊', color: '#fbbf24', glow: 'rgba(251,191,36,0.3)',  bg: 'linear-gradient(135deg, #fbbf24, #f97316)' },
-  { label: 'Chill',   emoji: '😌', color: '#34d399', glow: 'rgba(52,211,153,0.3)',   bg: 'linear-gradient(135deg, #34d399, #059669)' },
-  { label: 'Sad',     emoji: '😢', color: '#60a5fa', glow: 'rgba(96,165,250,0.3)',   bg: 'linear-gradient(135deg, #60a5fa, #6366f1)' },
-  { label: 'Workout', emoji: '💪', color: '#f97316', glow: 'rgba(249,115,22,0.3)',   bg: 'linear-gradient(135deg, #f97316, #ef4444)' },
-  { label: 'Focus',   emoji: '🧠', color: '#a855f7', glow: 'rgba(168,85,247,0.3)',   bg: 'linear-gradient(135deg, #a855f7, #7c3aed)' },
-  { label: 'Party',   emoji: '🎉', color: '#ff6b6b', glow: 'rgba(255,107,107,0.3)',  bg: 'linear-gradient(135deg, #ff6b6b, #f43f5e)' },
-  { label: 'Romance', emoji: '💖', color: '#f472b6', glow: 'rgba(244,114,182,0.3)',  bg: 'linear-gradient(135deg, #f472b6, #ec4899)' },
-  { label: 'Hype',    emoji: '🔥', color: '#00d4ff', glow: 'rgba(0,212,255,0.3)',    bg: 'linear-gradient(135deg, #00d4ff, #a855f7)' },
-]
+function fmtDuration(s) {
+  if (!s) return '0:00'
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+}
 
-const moodColor = m => (moods.find(x => x.label === m) || moods[0]).color
+function fmtListeningTime(seconds) {
+  if (!seconds || seconds < 60) return `${Math.round(seconds || 0)}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
 
-const moodEmojis = { Happy: '😊', Chill: '😌', Sad: '😢', Workout: '💪', Focus: '🧠', Party: '🎉', Romance: '💖', Hype: '🔥' }
-const moodColors = { Happy: '#fbbf24', Chill: '#34d399', Sad: '#60a5fa', Workout: '#f97316', Focus: '#a855f7', Party: '#ff6b6b', Romance: '#f472b6', Hype: '#00d4ff' }
-
-const navLinks = [
-  { icon: '🏠', label: 'Home',         active: true, path: '/dashboard' },
-  { icon: '🔍', label: 'Search',                     path: '/search'   },
-  { icon: '📚', label: 'Your Library',               path: '/library'  },
-  { icon: '❤️', label: 'Liked Songs',                path: '/liked'    },
-]
-
-function fmtDuration(secs) {
-  if (!secs) return '—'
-  const m = Math.floor(secs / 60)
-  const s = String(Math.floor(secs % 60)).padStart(2, '0')
-  return `${m}:${s}`
+function timeAgo(dateStr) {
+  if (!dateStr) return ''
+  const diff = (Date.now() - new Date(dateStr)) / 1000
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 export default function Dashboard() {
-  const { user, logout } = useAuth()
-  const { playSong } = usePlayer()
+  const { user } = useAuth()
+  const { playSong, currentSong, queue, isLiked, toggleLike } = usePlayer()
+  const { toggleSidebar } = useMobileNav()
   const navigate = useNavigate()
-  const [activeMood, setActiveMood]   = useState(null)
-  const [hoveredSong, setHoveredSong] = useState(null)
-  const [hoveredRec, setHoveredRec]   = useState(null)
-  const [playlists, setPlaylists]     = useState([])
-  const [trending, setTrending]       = useState([])
-  const [featured, setFeatured]       = useState([])
-  const [liveCount, setLiveCount]     = useState(0)
 
-  const { recommendations, loading: recsLoading } = useRecommendations(user?.id)
+  const [trending,    setTrending]    = useState([])
+  const [history,     setHistory]     = useState([])
+  const [stats,       setStats]       = useState(null)
+  const [likedCount,  setLikedCount]  = useState(0)
+  const [topArtist,   setTopArtist]   = useState(null)
+  const [greeting,    setGreeting]    = useState('')
+  const [moodText,    setMoodText]    = useState('')
+  const [moodActive,  setMoodActive]  = useState(false)
+  const [isListening, setIsListening] = useState(false)
 
-  // Sidebar playlists
+  // Greeting
+  useEffect(() => {
+    const h = new Date().getHours()
+    if (h < 12)      setGreeting('Good morning')
+    else if (h < 17) setGreeting('Good afternoon')
+    else             setGreeting('Good evening')
+  }, [])
+
+  // All data fetching + live subscription
   useEffect(() => {
     if (!user?.id) return
-    pb.collection('Playlist').getFullList({
-      filter: `user = "${user.id}"`,
-      sort: '-created',
-      requestKey: 'sidebar-playlists',
-    }).then(setPlaylists).catch(() => {})
+
+    // Batch fetch everything in parallel
+    Promise.all([
+      pb.collection('songs').getFullList({ sort: '-created', requestKey: 'dash-songs' }),
+      pb.collection('history').getFullList({
+        filter: `user = "${user.id}"`,
+        sort: '-created',
+        expand: 'song',
+        requestKey: 'dash-history',
+      }),
+      pb.collection('likes').getFullList({
+        filter: `user = "${user.id}"`,
+        requestKey: 'dash-likes',
+      }),
+      pb.collection('user_stats').getFirstListItem(`user="${user.id}"`, {
+        expand: 'last_song',
+      }).catch(() => null),
+    ]).then(([songs, hist, liked, userStats]) => {
+      setTrending(songs.slice(0, 6))
+      setHistory(hist.slice(0, 5))
+      setLikedCount(liked.length)
+      setStats(userStats)
+
+      // Derive top artist from history
+      if (hist.length > 0) {
+        const artistCounts = {}
+        hist.forEach(h => {
+          const artist = h.expand?.song?.artist
+          if (artist) artistCounts[artist] = (artistCounts[artist] || 0) + 1
+        })
+        const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0]
+        if (top) setTopArtist({ name: top[0], count: top[1] })
+      }
+    }).catch(() => {})
+
+    // Live subscription to stats
+    pb.collection('user_stats').subscribe('*', async (e) => {
+      if (e.record.user === user.id) {
+        const fresh = await pb.collection('user_stats').getOne(e.record.id, {
+          expand: 'last_song',
+        }).catch(() => null)
+        if (fresh) setStats(fresh)
+      }
+    })
+
+    // Live subscription to history (update top artist on new listen)
+    pb.collection('history').subscribe('*', async (e) => {
+      if (e.record.user === user.id) {
+        const hist = await pb.collection('history').getFullList({
+          filter: `user = "${user.id}"`,
+          sort: '-created',
+          expand: 'song',
+          requestKey: `dash-history-live-${Date.now()}`,
+        }).catch(() => [])
+        setHistory(hist.slice(0, 5))
+
+        const artistCounts = {}
+        hist.forEach(h => {
+          const artist = h.expand?.song?.artist
+          if (artist) artistCounts[artist] = (artistCounts[artist] || 0) + 1
+        })
+        const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0]
+        if (top) setTopArtist({ name: top[0], count: top[1] })
+      }
+    })
+
+    // Live subscription to likes
+    pb.collection('likes').subscribe('*', async (e) => {
+      if (e.record.user === user.id) {
+        const liked = await pb.collection('likes').getFullList({
+          filter: `user = "${user.id}"`,
+          requestKey: `dash-likes-live-${Date.now()}`,
+        }).catch(() => [])
+        setLikedCount(liked.length)
+      }
+    })
+
+    return () => {
+      pb.collection('user_stats').unsubscribe('*')
+      pb.collection('history').unsubscribe('*')
+      pb.collection('likes').unsubscribe('*')
+    }
   }, [user?.id])
 
-  // Real trending songs from PocketBase
-  useEffect(() => {
-    pb.collection('songs').getFullList({
-      sort: '-created',
-      perPage: 5,
-      requestKey: 'dashboard-trending',
-    }).then(data => setTrending(data.slice(0, 5))).catch(() => {})
-  }, [])
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert("Voice input is not supported in this browser. Please type your mood instead.")
+      setMoodActive(true)
+      return
+    }
 
-  // Real featured playlists from PocketBase (any user's public playlists)
-  useEffect(() => {
-    pb.collection('Playlist').getFullList({
-      sort: '-created',
-      perPage: 3,
-      requestKey: 'dashboard-featured',
-    }).then(data => setFeatured(data.slice(0, 3))).catch(() => {})
-  }, [])
+    const recognition = new SpeechRecognition()
+    recognition.continuous = false
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
 
-  // Real live listener count from jam_rooms
-  useEffect(() => {
-    pb.collection('jam_rooms').getFullList({
-      filter: 'is_live = true',
-      requestKey: 'dashboard-live-count',
-    }).then(rooms => {
-      const total = rooms.reduce((sum, r) => sum + (r.listeners || 0), 0)
-      setLiveCount(total)
-    }).catch(() => {})
-  }, [])
+    recognition.onstart = () => {
+      setIsListening(true)
+      setMoodActive(true)
+      setMoodText('')
+    }
+
+    recognition.onresult = (event) => {
+      let currentTranscript = ''
+      for (let i = 0; i < event.results.length; i++) {
+        currentTranscript += event.results[i][0].transcript
+      }
+      setMoodText(currentTranscript)
+    }
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error", event.error)
+      if (event.error === 'not-allowed') {
+        alert("Microphone access was denied. Please click the camera/mic icon in your browser's address bar to allow access.")
+      } else if (event.error === 'no-speech') {
+        console.warn("Browser didn't hear any speech. Check your system microphone settings.")
+      }
+      setIsListening(false)
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+    }
+
+    recognition.start()
+  }
+
+  const lastSong = stats?.expand?.last_song || null
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex' }}>
+    <>
+      <Sidebar />
+      <main className="main-content">
+        <section className="center-view">
+          <div className="center-container">
 
-      {/* ── Sidebar ── */}
-      <aside style={{
-        width: 220, flexShrink: 0, borderRight: '1px solid var(--border)',
-        padding: '28px 14px', display: 'flex', flexDirection: 'column', gap: 4,
-        position: 'sticky', top: 0, height: '100vh', overflowY: 'auto'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28, padding: '0 8px' }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg, #00d4ff, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>🎵</div>
-          <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 20, letterSpacing: '-0.5px' }}>Moodify</span>
-        </div>
-
-        {navLinks.map(item => (
-          <button key={item.label} 
-          onClick={() => item.path && navigate(item.path)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 10,
-            border: 'none', background: item.active ? 'rgba(255,255,255,0.07)' : 'transparent',
-            color: item.active ? '#fff' : 'var(--muted2)', cursor: 'pointer', fontSize: 14,
-            fontWeight: item.active ? 600 : 400, textAlign: 'left', transition: 'all 0.2s', width: '100%'
-          }}
-            onMouseEnter={e => { if (!item.active) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#fff' } }}
-            onMouseLeave={e => { if (!item.active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted2)' } }}>
-            <span style={{ fontSize: 17 }}>{item.icon}</span>{item.label}
-          </button>
-        ))}
-
-        <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
-
-<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', marginBottom: 4 }}>
-  <p style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '1px', textTransform: 'uppercase' }}>Playlists</p>
-  <button onClick={() => navigate('/library')}
-    style={{ background: 'none', border: 'none', color: '#00d4ff', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}
-    title="Create playlist">
-    +
-  </button>
-</div>
-
-{playlists.length === 0 && (
-  <p style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 12px' }}>No playlists yet</p>
-)}
-
-{playlists.map(pl => {
-  const moodColors = { Happy: '#fbbf24', Chill: '#34d399', Sad: '#60a5fa', Workout: '#f97316', Focus: '#a855f7', Party: '#ff6b6b', Romance: '#f472b6', Hype: '#00d4ff' }
-  const moodEmojis = { Happy: '😊', Chill: '😌', Sad: '😢', Workout: '💪', Focus: '🧠', Party: '🎉', Romance: '💖', Hype: '🔥' }
-  const color = moodColors[pl.mood] || '#00d4ff'
-  const emoji = moodEmojis[pl.mood] || '🎵'
-  return (
-    <button key={pl.id}
-      onClick={() => navigate('/library')}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 10, border: 'none', background: 'transparent', color: 'var(--muted2)', cursor: 'pointer', fontSize: 13, textAlign: 'left', transition: 'all 0.2s', width: '100%' }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#fff' }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted2)' }}>
-      <div style={{ width: 22, height: 22, borderRadius: 6, background: `${color}22`, border: `1px solid ${color}44`, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{emoji}</div>
-      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pl.name}</span>
-    </button>
-  )
-})}
-
-        <div style={{ marginTop: 'auto', background: 'linear-gradient(135deg, rgba(0,212,255,0.08), rgba(168,85,247,0.08))', border: '1px solid rgba(0,212,255,0.18)', borderRadius: 14, padding: '16px 14px' }}>
-          <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🎧 Jam Session</p>
-          <p style={{ fontSize: 12, color: 'var(--muted2)', marginBottom: 12, lineHeight: 1.5 }}>Listen live with friends in sync</p>
-          <button onClick={() => navigate('/jam')} style={{ width: '100%', padding: '9px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg, #00d4ff, #a855f7)', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Syne, sans-serif' }}>
-            Join a Room →
-          </button>
-        </div>
-      </aside>
-
-      {/* ── Main ── */}
-      <main style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
-
-        {/* Sticky topbar */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(6,7,15,0.88)', backdropFilter: 'blur(20px)', borderBottom: '1px solid var(--border)', padding: '14px 32px', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ flex: 1, position: 'relative' }}>
-            <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, opacity: 0.4 }}>🔍</span>
-            <input placeholder="Search songs, artists, moods..."
-              onChange={e => { if (e.target.value) navigate('/search') }}
-              onKeyDown={e => { if (e.key === 'Enter') navigate('/search') }}
-              onFocus={() => navigate('/search')}
-              style={{ width: '100%', maxWidth: 360, padding: '10px 16px 10px 42px', borderRadius: 99, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', color: 'var(--text)', fontSize: 14, outline: 'none' }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #00d4ff, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, cursor: 'pointer' }} onClick={logout}>👤</div>
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 600, lineHeight: 1 }}>{user?.name || user?.email}</p>
-              <p style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 2 }}>Free plan</p>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ padding: '32px 32px 0' }}>
-
-          {/* ── Hero ── */}
-          <div style={{ marginBottom: 44, position: 'relative', borderRadius: 24, overflow: 'hidden', background: 'linear-gradient(135deg, rgba(0,212,255,0.07) 0%, rgba(168,85,247,0.07) 55%, rgba(255,107,107,0.04) 100%)', border: '1px solid rgba(255,255,255,0.06)', padding: '40px 44px' }}>
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', top: -50, right: 80, width: 220, height: 220, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,212,255,0.13) 0%, transparent 70%)', animation: 'float 7s ease-in-out infinite' }} />
-            <div style={{ position: 'absolute', bottom: -40, right: 200, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle, rgba(168,85,247,0.1) 0%, transparent 70%)', animation: 'float 9s ease-in-out infinite 2s' }} />
-            <div style={{ position: 'relative' }}>
-              <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 10, letterSpacing: '0.3px' }}>Good evening 👋</p>
-              <h1 style={{ fontFamily: 'Syne', fontSize: 42, fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1.1, marginBottom: 14, background: 'linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.6) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                What's your<br />mood today?
-              </h1>
-              <p style={{ color: 'var(--muted2)', fontSize: 15, maxWidth: 380, lineHeight: 1.65, marginBottom: 28 }}>
-                Pick a vibe and our AI will instantly build a playlist made for this exact moment.
-              </p>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button onClick={() => navigate('/playlist?mood=Hype')}
-                  style={{ padding: '13px 26px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #00d4ff, #a855f7)', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer', fontFamily: 'Syne, sans-serif', boxShadow: '0 8px 28px rgba(0,212,255,0.22)' }}>
-                  Generate Playlist ✨
-                </button>
-                <button onClick={() => navigate('/jam')}
-                  style={{ padding: '13px 22px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: 'var(--text)', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, backdropFilter: 'blur(8px)' }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', boxShadow: '0 0 8px #34d399', display: 'inline-block', animation: 'pulse-glow 2s infinite' }} />
-                  {liveCount > 0 ? `${liveCount} people live now` : 'Join a live room'}
-                </button>
+            {/* ── Topbar ── */}
+            <div className="topbar" style={{ marginBottom: 32 }}>
+              <div className="search-container">
+                <Search className="search-icon" size={18} />
+                <input
+                  className="search-input"
+                  placeholder="Search for songs, artists, or moods..."
+                  onFocus={() => navigate('/search')}
+                />
+              </div>
+              <div className="topbar-actions">
+                <button className="icon-button"><Bell size={18} /></button>
+                <button className="hamburger-btn" onClick={toggleSidebar}><Menu size={24} /></button>
+                <img
+                  src={user?.avatar
+                    ? pb.files.getURL(user, user.avatar)
+                    : `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=be5c2b&color=fff`}
+                  className="user-avatar"
+                  alt="Avatar"
+                  onClick={() => navigate('/profile')}
+                />
               </div>
             </div>
+
+            {/* ── Greeting ── */}
+            <div style={{ marginBottom: 28 }}>
+              <h1 style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
+                {greeting}, {user?.name?.split(' ')[0] || 'there'} 👋
+              </h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 15, marginTop: 4 }}>
+                Here's what your listening looks like today.
+              </p>
+            </div>
+
+            {/* ══════════════════════════════════════
+                  BENTO GRID — all real data
+                ══════════════════════════════════════ */}
+            <div className="bento-grid">
+
+              {/* [A] HERO — Last Listened (spans 2 cols × 2 rows) */}
+              <div
+                className="bento-item span-2 row-2"
+                style={{
+                  padding: 0,
+                  background: lastSong ? 'black' : 'var(--surface)',
+                  overflow: 'hidden',
+                  cursor: lastSong ? 'pointer' : 'default',
+                  minHeight: 340,
+                }}
+                onClick={() => lastSong && playSong([lastSong], 0)}
+              >
+                {lastSong ? (
+                  <>
+                    <img
+                      src={lastSong.cover_url}
+                      alt={lastSong.title}
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.55 }}
+                    />
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      background: 'linear-gradient(160deg, transparent 30%, rgba(0,0,0,0.95) 100%)',
+                    }} />
+                    <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 28 }}>
+                      <span style={{
+                        alignSelf: 'flex-start',
+                        background: 'rgba(255,255,255,0.15)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: 999,
+                        padding: '4px 12px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: 'white',
+                      }}>
+                        Last Played · {timeAgo(history[0]?.created)}
+                      </span>
+                      <div>
+                        <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
+                          {lastSong.artist}
+                        </p>
+                        <h2 style={{ fontSize: 26, fontWeight: 900, color: 'white', letterSpacing: '-0.02em', lineHeight: 1.2, marginBottom: 20 }}>
+                          {lastSong.title}
+                        </h2>
+                        <button
+                          className="btn-primary"
+                          style={{ background: 'white', color: '#000', fontSize: 14, padding: '10px 20px' }}
+                          onClick={(e) => { e.stopPropagation(); playSong([lastSong], 0) }}
+                        >
+                          <Music size={15} /> Play Again
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: 'var(--text-muted)' }}>
+                    <Headphones size={40} style={{ opacity: 0.3 }} />
+                    <p style={{ fontSize: 15, fontWeight: 600 }}>Nothing played yet</p>
+                    <p style={{ fontSize: 13 }}>Your last song will appear here</p>
+                  </div>
+                )}
+              </div>
+
+              {/* [B] Listening Time */}
+              <div className="bento-item bento-stat-card">
+                <div className="bento-icon"><Clock size={44} /></div>
+                <div>
+                  <p className="bento-title">Listening Time</p>
+                  <h3 className="bento-value">{fmtListeningTime(stats?.total_listening_time)}</h3>
+                </div>
+                <p className="bento-label">Total tracked</p>
+              </div>
+
+              {/* [C] Songs Played */}
+              <div className="bento-item">
+                <div className="bento-icon"><ListMusic size={44} /></div>
+                <div>
+                  <p className="bento-title">Songs Played</p>
+                  <h3 className="bento-value">{history.length > 0 ? history.length + '+' : '0'}</h3>
+                </div>
+                <p className="bento-label">In your history</p>
+              </div>
+
+              {/* [D] Top Artist (spans 2 cols) */}
+              <div
+                className="bento-item span-2"
+                style={{
+                  background: topArtist
+                    ? 'linear-gradient(135deg, var(--accent) 0%, #c84b23 100%)'
+                    : 'var(--surface)',
+                  border: 'none',
+                  color: topArtist ? 'white' : undefined,
+                }}
+              >
+                <div className="bento-icon" style={{ color: topArtist ? 'white' : 'var(--accent)', opacity: 0.2 }}>
+                  <Mic2 size={44} />
+                </div>
+                <div>
+                  <p className="bento-title" style={{ color: topArtist ? 'rgba(255,255,255,0.7)' : undefined }}>Top Artist</p>
+                  <h3 className="bento-value" style={{ color: topArtist ? 'white' : undefined, fontSize: topArtist ? 22 : 16 }}>
+                    {topArtist?.name || 'No data yet'}
+                  </h3>
+                </div>
+                <p className="bento-label" style={{ color: topArtist ? 'rgba(255,255,255,0.7)' : undefined }}>
+                  {topArtist ? `Listened ${topArtist.count} time${topArtist.count !== 1 ? 's' : ''}` : 'Play music to track your top artist'}
+                </p>
+              </div>
+
+            </div>
+            {/* ══════════════════════ end bento ══════════════════════ */}
+
+            {/* ── AI Mood Input ── */}
+            <div className="mood-hero-section">
+              <div className={`mood-ring-container ${moodActive ? 'active' : ''} ${isListening ? 'listening' : ''}`} onClick={() => !isListening && startListening()}>
+                <div className="mood-ring-glow" />
+                <div className="mood-ring-outer">
+                  <div className="mood-ring-inner">
+                    <Mic size={32} />
+                  </div>
+                </div>
+              </div>
+
+              {!moodActive ? (
+                <p className="mood-hero-label" onClick={() => startListening()}>Tap to describe your mood</p>
+              ) : (
+                <form className="mood-input-form" onSubmit={(e) => {
+                  e.preventDefault()
+                  if (moodText.trim()) {
+                    navigate(`/playlist?mood=${encodeURIComponent(moodText.trim())}`)
+                  }
+                }}>
+                  <input
+                    autoFocus
+                    className="mood-input"
+                    placeholder={isListening ? "Listening..." : "How are you feeling right now?"}
+                    value={moodText}
+                    onChange={(e) => setMoodText(e.target.value)}
+                  />
+                  <button type="submit" className="mood-send-btn" disabled={!moodText.trim()}>
+                    <Send size={20} />
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {/* ── Trending ── */}
+            <div className="section-header">
+              <h2 className="section-title">Trending Now</h2>
+            </div>
+            <div className="song-list">
+              {trending.map((song, i) => (
+                <div
+                  className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`}
+                  key={song.id}
+                  onClick={() => playSong(trending, i)}
+                >
+                  {song.cover_url ? (
+                    <img src={song.cover_url} className="song-cover" alt="cover" />
+                  ) : (
+                    <div className="song-cover" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Music size={20} style={{ color: 'var(--text-muted)' }} />
+                    </div>
+                  )}
+                  <div className="song-info">
+                    <p className="song-title">{song.title}</p>
+                    <p className="song-artist">{song.artist}</p>
+                  </div>
+                  <span className="song-duration" style={{ marginRight: 12 }}>{fmtDuration(song.duration)}</span>
+                  <button
+                    className="song-action"
+                    onClick={(e) => { e.stopPropagation(); toggleLike(song.id) }}
+                    style={{ color: isLiked(song.id) ? 'var(--accent)' : undefined }}
+                  >
+                    <Heart size={18} fill={isLiked(song.id) ? 'currentColor' : 'none'} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        </section>
+
+        {/* ── Right Panel ── */}
+        <aside className="right-view">
+          <div className="section-header">
+            <h2 className="section-title" style={{ fontSize: 18 }}>Now Playing</h2>
           </div>
 
-          {/* ── Mood Grid ── */}
-          <section style={{ marginBottom: 48 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ fontFamily: 'Syne', fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>Pick a mood</h2>
-              <span style={{ fontSize: 12, color: 'var(--muted2)' }}>AI curates your playlist instantly</span>
+          {currentSong ? (
+            <>
+              <div style={{ width: '100%', aspectRatio: '1', borderRadius: 'var(--radius-xl)', background: 'var(--surface-hover)', overflow: 'hidden', marginBottom: 24, border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
+                {currentSong.cover_url ? (
+                  <img src={currentSong.cover_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="now playing" />
+                ) : (
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Music size={64} style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                )}
+              </div>
+              <div style={{ marginBottom: 32 }}>
+                <h3 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, letterSpacing: '-0.02em' }}>{currentSong.title}</h3>
+                <p style={{ fontSize: 15, color: 'var(--text-secondary)' }}>{currentSong.artist}</p>
+              </div>
+              <div style={{ marginBottom: 48 }}>
+                <h4 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 16, letterSpacing: '0.05em' }}>Next in Queue</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {queue.slice(0, 3).map((song, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      {song.cover_url
+                        ? <img src={song.cover_url} style={{ width: 40, height: 40, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} alt="next" />
+                        : <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-sm)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Music size={16} style={{ color: 'var(--text-muted)' }} /></div>
+                      }
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</p>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{song.artist}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {queue.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Queue is empty.</p>}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: '40px 20px', textAlign: 'center', background: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', color: 'var(--text-muted)', marginBottom: 48 }}>
+              <Music size={32} style={{ marginBottom: 12, opacity: 0.5 }} />
+              <p style={{ fontSize: 14 }}>Pick a song to start listening</p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              {moods.map((mood, i) => (
-                <div key={mood.label}
-                  onClick={() => { setActiveMood(mood.label); navigate(`/playlist?mood=${mood.label}`) }}
-                  style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', cursor: 'pointer', aspectRatio: '1.7', transition: 'all 0.25s ease', animation: `fadeUp 0.45s ease ${i * 0.04}s both`, border: activeMood === mood.label ? `2px solid ${mood.color}` : '2px solid transparent', boxSizing: 'border-box' }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = `0 20px 48px ${mood.glow}` }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
-                  <div style={{ position: 'absolute', inset: 0, background: mood.bg, opacity: 0.18 }} />
-                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, rgba(0,0,0,0.05), rgba(0,0,0,0.55))' }} />
-                  <div style={{ position: 'absolute', top: -18, right: -18, width: 70, height: 70, borderRadius: '50%', background: mood.color, opacity: 0.2, filter: 'blur(18px)' }} />
-                  <div style={{ position: 'relative', padding: '14px 16px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 26 }}>{mood.emoji}</span>
-                    <p style={{ fontFamily: 'Syne', fontWeight: 700, fontSize: 15, color: '#fff', textShadow: '0 1px 8px rgba(0,0,0,0.4)' }}>{mood.label}</p>
+          )}
+
+          <div className="section-header">
+            <h2 className="section-title" style={{ fontSize: 18 }}>Recent Activity</h2>
+          </div>
+          {history.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {history.map((h, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {h.expand?.song?.cover_url
+                    ? <img src={h.expand.song.cover_url} style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} alt="history" />
+                    : <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Music size={14} style={{ color: 'var(--text-muted)' }} /></div>
+                  }
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.expand?.song?.title}</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{timeAgo(h.created)}</p>
                   </div>
                 </div>
               ))}
             </div>
-          </section>
+          ) : (
+            <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>No history yet.</p>
+          )}
+        </aside>
 
-          {/* ── Recommendations ── */}
-          <section style={{ marginBottom: 48 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <h2 style={{ fontFamily: 'Syne', fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>✨ Recommended For You</h2>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 20 }}>Based on your recent listening history</p>
-            {recsLoading ? (
-              <div style={{ display: 'flex', gap: 14 }}>
-                {[1,2,3,4].map(n => (
-                  <div key={n} style={{ flex: '0 0 160px', height: 180, borderRadius: 16, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', animation: 'pulse-glow 1.5s ease infinite' }} />
-                ))}
-              </div>
-            ) : recommendations.length === 0 ? (
-              <div style={{ padding: '32px 24px', borderRadius: 18, background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border)', textAlign: 'center' }}>
-                <p style={{ fontSize: 32, marginBottom: 12 }}>🎧</p>
-                <p style={{ fontSize: 14, color: 'var(--muted2)' }}>Play some songs to get personalised recommendations!</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8 }}>
-                {recommendations.map((song, i) => {
-                  const color = moodColors[song.mood] || '#00d4ff'
-                  return (
-                    <div key={song.id}
-                      onClick={() => playSong(recommendations, i)}
-                      onMouseEnter={() => setHoveredRec(i)}
-                      onMouseLeave={() => setHoveredRec(null)}
-                      style={{ flex: '0 0 160px', borderRadius: 16, overflow: 'hidden', cursor: 'pointer', border: `1px solid ${color}22`, transition: 'all 0.22s ease', transform: hoveredRec === i ? 'translateY(-4px)' : 'none', boxShadow: hoveredRec === i ? `0 16px 36px ${color}20` : 'none' }}>
-                      <div style={{ height: 110, background: song.cover_url ? `url(${song.cover_url}) center/cover` : `linear-gradient(135deg, ${color}30, ${color}08)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, position: 'relative' }}>
-                        {!song.cover_url && '🎵'}
-                        {hoveredRec === i && (
-                          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>▶</div>
-                        )}
-                      </div>
-                      <div style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.02)' }}>
-                        <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</p>
-                        <p style={{ fontSize: 11, color: 'var(--muted2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.artist}</p>
-                        <span style={{ display: 'inline-block', marginTop: 6, fontSize: 10, color, background: `${color}15`, padding: '2px 8px', borderRadius: 99, border: `1px solid ${color}22` }}>{song.mood}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-
-          {/* ── Featured ── */}
-          <section style={{ marginBottom: 48 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ fontFamily: 'Syne', fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>Featured playlists</h2>
-              <span onClick={() => navigate('/library')} style={{ fontSize: 13, color: '#00d4ff', cursor: 'pointer' }}>See all →</span>
-            </div>
-            {featured.length === 0 ? (
-              <div style={{ padding: '28px', borderRadius: 18, background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border)', textAlign: 'center' }}>
-                <p style={{ fontSize: 13, color: 'var(--muted2)' }}>No playlists yet — <span onClick={() => navigate('/library')} style={{ color: '#00d4ff', cursor: 'pointer' }}>create one</span></p>
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
-                {featured.map((p, i) => {
-                  const color = moodColors[p.mood] || '#00d4ff'
-                  const emoji = moodEmojis[p.mood] || '🎵'
-                  return (
-                    <div key={p.id || i}
-                      onClick={() => navigate(`/playlist?mood=${p.mood || 'Chill'}`)}
-                      style={{ borderRadius: 18, overflow: 'hidden', cursor: 'pointer', border: `1px solid ${color}22`, transition: 'all 0.25s ease', animation: `fadeUp 0.5s ease ${i * 0.08}s both` }}
-                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = `0 20px 48px ${color}20` }}
-                      onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
-                      <div style={{ height: 130, background: `linear-gradient(135deg, ${color}20, ${color}06)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 52, position: 'relative', borderBottom: `1px solid ${color}18` }}>
-                        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle at 30% 50%, rgba(255,255,255,0.04) 0%, transparent 60%)' }} />
-                        {emoji}
-                      </div>
-                      <div style={{ padding: '16px 18px', background: 'rgba(255,255,255,0.02)' }}>
-                        <p style={{ fontFamily: 'Syne', fontWeight: 700, fontSize: 15, marginBottom: 5 }}>{p.name}</p>
-                        <p style={{ fontSize: 12, color: 'var(--muted2)', marginBottom: 12, lineHeight: 1.5 }}>{p.mood ? `${p.mood} vibes` : 'Mixed playlist'}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span style={{ fontSize: 12, color, fontWeight: 600 }}>{Array.isArray(p.songs) ? p.songs.length : 0} songs</span>
-                          <span style={{ fontSize: 11, color, background: `${color}15`, padding: '3px 10px', borderRadius: 99, border: `1px solid ${color}22` }}>{p.mood || 'Mixed'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-
-          {/* ── Trending ── */}
-          <section style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ fontFamily: 'Syne', fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>Trending now 🔥</h2>
-              <span onClick={() => navigate('/search')} style={{ fontSize: 13, color: '#00d4ff', cursor: 'pointer' }}>See all →</span>
-            </div>
-            {trending.length === 0 ? (
-              <div style={{ padding: '28px', borderRadius: 20, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', textAlign: 'center' }}>
-                <p style={{ fontSize: 13, color: 'var(--muted2)' }}>No songs in the library yet</p>
-              </div>
-            ) : (
-              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 20, overflow: 'hidden' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 100px 60px', gap: 16, padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
-                  {['#', 'TITLE', 'MOOD', 'TIME'].map(h => (
-                    <span key={h} style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '0.8px' }}>{h}</span>
-                  ))}
-                </div>
-                {trending.map((song, i) => {
-                  const color = moodColor(song.mood)
-                  return (
-                    <div key={song.id || i}
-                      onClick={() => playSong(trending, i)}
-                      onMouseEnter={() => setHoveredSong(i)}
-                      onMouseLeave={() => setHoveredSong(null)}
-                      style={{ display: 'grid', gridTemplateColumns: '36px 1fr 100px 60px', gap: 16, padding: '13px 20px', borderBottom: i < trending.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer', background: hoveredSong === i ? 'rgba(255,255,255,0.03)' : 'transparent', transition: 'background 0.15s', alignItems: 'center' }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 8, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color, border: `1px solid ${color}28` }}>{i + 1}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 40, height: 40, borderRadius: 10, background: song.cover_url ? `url(${song.cover_url}) center/cover` : `linear-gradient(135deg, ${color}28, ${color}0a)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, border: `1px solid ${color}18`, flexShrink: 0 }}>
-                          {!song.cover_url && (hoveredSong === i ? '▶' : '🎵')}
-                          {song.cover_url && hoveredSong === i && <div style={{ position: 'absolute', fontSize: 18 }}>▶</div>}
-                        </div>
-                        <div>
-                          <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{song.title}</p>
-                          <p style={{ fontSize: 12, color: 'var(--muted2)' }}>{song.artist}</p>
-                        </div>
-                      </div>
-                      <span style={{ fontSize: 12, color, background: `${color}12`, padding: '4px 10px', borderRadius: 99, border: `1px solid ${color}22`, width: 'fit-content' }}>{song.mood}</span>
-                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{fmtDuration(song.duration)}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-
-        </div>
       </main>
-    </div>
+    </>
   )
 }

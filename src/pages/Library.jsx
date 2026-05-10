@@ -47,12 +47,11 @@ export default function Library() {
   const fetchPlaylists = async () => {
     if (!user?.id) return
     try {
-      const { databases, DB_ID, COLLECTIONS } = await import('../services/appwrite')
-      const result = await databases.listDocuments(DB_ID, COLLECTIONS.PLAYLISTS, [
-        Query.equal('user', user.id),
-        Query.orderDesc('$createdAt'),
-      ])
-      setPlaylists(result.documents)
+      const result = await pb.collection('Playlist').getFullList({
+        filter: `user = '${user.id}'`,
+        sort: '-created',
+      })
+      setPlaylists(result)
     } catch (err) {
       console.error(err)
     } finally {
@@ -64,8 +63,7 @@ export default function Library() {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const { databases, DB_ID, COLLECTIONS, ID } = await import('../services/appwrite')
-      const playlist = await databases.createDocument(DB_ID, COLLECTIONS.PLAYLISTS, ID.unique(), {
+      const playlist = await pb.collection('Playlist').create({
         name: newName.trim(),
         mood: newMood,
         user: user.id,
@@ -84,9 +82,8 @@ export default function Library() {
   const deletePlaylist = async (id) => {
     if (!confirm('Delete this playlist?')) return
     try {
-      const { databases, DB_ID, COLLECTIONS } = await import('../services/appwrite')
-      await databases.deleteDocument(DB_ID, COLLECTIONS.PLAYLISTS, id)
-      setPlaylists(prev => prev.filter(p => p.$id !== id))
+      await pb.collection('Playlist').delete(id)
+      setPlaylists(prev => prev.filter(p => p.id !== id))
       setActivePlaylist(null)
     } catch (err) {
       console.error(err)
@@ -97,15 +94,11 @@ export default function Library() {
     setActivePlaylist(playlist)
     setLoadingSongs(true)
     try {
-      const { databases, DB_ID, COLLECTIONS } = await import('../services/appwrite')
-      
-      // Manual expand for songs
-      const resolvedSongs = await Promise.all(playlist.songs.map(async (sid) => {
-        try {
-          return await databases.getDocument(DB_ID, COLLECTIONS.SONGS, sid)
-        } catch (e) { return null }
-      }))
-      setPlaylistSongs(resolvedSongs.filter(Boolean))
+      const result = await pb.collection('Playlist').getOne(playlist.id, {
+        expand: 'songs',
+      })
+      const songs = result.expand?.songs
+      setPlaylistSongs(Array.isArray(songs) ? songs : songs ? [songs] : [])
     } catch (err) {
       console.error(err)
     } finally {
@@ -131,7 +124,7 @@ export default function Library() {
                        <Play size={18} fill="currentColor" /> Play All
                      </button>
                    )}
-                   <button className="btn-primary" style={{ background: 'rgba(255,107,107,0.2)', color: '#ff6b6b' }} onClick={() => deletePlaylist(activePlaylist.$id)}>
+                   <button className="btn-primary" style={{ background: 'rgba(255,107,107,0.2)', color: '#ff6b6b' }} onClick={() => deletePlaylist(activePlaylist.id)}>
                      <Trash2 size={18} /> Delete
                    </button>
                    <button className="btn-primary" style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }} onClick={() => setActivePlaylist(null)}>
@@ -153,7 +146,7 @@ export default function Library() {
               ) : (
                 <div className="song-list">
                   {playlistSongs.map((song, i) => (
-                    <div key={song.$id} className={`song-row ${currentSong?.$id === song.$id ? 'active' : ''}`} onClick={() => playSong(playlistSongs, i)}>
+                    <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(playlistSongs, i)}>
                       <img src={song.cover_url} className="song-cover" alt="cover" />
                       <div className="song-info">
                         <p className="song-title">{song.title}</p>
@@ -199,7 +192,7 @@ export default function Library() {
                 {playlists.map(p => {
                   const m = moodMeta[p.mood] || moodMeta.Chill
                   return (
-                    <div key={p.$id} className="item-card" onClick={() => openPlaylist(p)}>
+                    <div key={p.id} className="item-card" onClick={() => openPlaylist(p)}>
                       <div className="item-card-cover" style={{ background: `linear-gradient(135deg, ${m.color}33, ${m.color}08)` }}>
                         {m.emoji}
                       </div>

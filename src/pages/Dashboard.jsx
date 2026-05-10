@@ -4,8 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { usePlayer } from '../context/PlayerContext'
 import { useMobileNav } from '../context/MobileNavContext'
 import Sidebar from '../components/Sidebar'
-import client, { databases, DB_ID, COLLECTIONS } from '../services/appwrite'
-import { Query } from 'appwrite'
+import pb from '../services/pocketbase'
 import {
   Search,
   Bell,
@@ -67,85 +66,91 @@ export default function Dashboard() {
     else             setGreeting('Good evening')
   }, [])
 
-  const fetchData = async () => {
+  // All data fetching + live subscription
+  useEffect(() => {
     if (!user?.id) return
 
-    try {
-      // 1. Fetch Trending Songs
-      const trendingRes = await databases.listDocuments(DB_ID, COLLECTIONS.SONGS, [
-        Query.limit(6),
-        Query.orderDesc('$createdAt')
-      ])
-      setTrending(trendingRes.documents)
+    // Batch fetch everything in parallel
+    Promise.all([
+      pb.collection('songs').getFullList({ sort: '-created', requestKey: 'dash-songs' }),
+      pb.collection('history').getFullList({
+        filter: `user = "${user.id}"`,
+        sort: '-created',
+        expand: 'song',
+        requestKey: 'dash-history',
+      }),
+      pb.collection('likes').getFullList({
+        filter: `user = "${user.id}"`,
+        requestKey: 'dash-likes',
+      }),
+      pb.collection('user_stats').getFirstListItem(`user="${user.id}"`, {
+        expand: 'last_song',
+      }).catch(() => null),
+    ]).then(([songs, hist, liked, userStats]) => {
+      setTrending(songs.slice(0, 6))
+      setHistory(hist.slice(0, 5))
+      setLikedCount(liked.length)
+      setStats(userStats)
 
-      // 2. Fetch History (with Manual Expansion if needed, or assume relationships)
-      const historyRes = await databases.listDocuments(DB_ID, COLLECTIONS.HISTORY, [
-        Query.equal('user', user.id),
-        Query.limit(5),
-        Query.orderDesc('$createdAt')
-      ])
-      
-      // If history items don't automatically include song data, we fetch them
-      const historyWithSongs = await Promise.all(historyRes.documents.map(async (h) => {
-        if (h.song && typeof h.song === 'string') {
-          const song = await databases.getDocument(DB_ID, COLLECTIONS.SONGS, h.song)
-          return { ...h, song }
-        }
-        return h
-      }))
-      setHistory(historyWithSongs)
-
-      // 3. Fetch Likes Count
-      const likesRes = await databases.listDocuments(DB_ID, COLLECTIONS.LIKES, [
-        Query.equal('user', user.id)
-      ])
-      setLikedCount(likesRes.total)
-
-      // 4. Fetch User Stats
-      const statsRes = await databases.listDocuments(DB_ID, COLLECTIONS.USER_STATS, [
-        Query.equal('user', user.id)
-      ])
-      if (statsRes.documents[0]) {
-        let statsDoc = statsRes.documents[0]
-        if (statsDoc.last_song && typeof statsDoc.last_song === 'string') {
-          const lastSong = await databases.getDocument(DB_ID, COLLECTIONS.SONGS, statsDoc.last_song)
-          statsDoc.last_song = lastSong
-        }
-        setStats(statsDoc)
-      }
-
-      // Derive top artist
-      if (historyWithSongs.length > 0) {
+      // Derive top artist from history
+      if (hist.length > 0) {
         const artistCounts = {}
-        historyWithSongs.forEach(h => {
-          const artist = h.song?.artist
+        hist.forEach(h => {
+          const artist = h.expand?.song?.artist
           if (artist) artistCounts[artist] = (artistCounts[artist] || 0) + 1
         })
         const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0]
         if (top) setTopArtist({ name: top[0], count: top[1] })
       }
-    } catch (e) {
-      console.error("Dashboard fetch error", e)
-    }
-  }
+    }).catch(() => {})
 
-  useEffect(() => {
-    fetchData()
-
-    // Real-time subscriptions
-    const unsubscribe = client.subscribe([
-      `databases.${DB_ID}.collections.${COLLECTIONS.USER_STATS}.documents`,
-      `databases.${DB_ID}.collections.${COLLECTIONS.HISTORY}.documents`,
-      `databases.${DB_ID}.collections.${COLLECTIONS.LIKES}.documents`
-    ], (response) => {
-      // Re-fetch on any relevant change for simplicity in this demo
-      // In a production app, you'd handle individual events
-      if (response.events.some(e => e.includes('.documents.'))) {
-        fetchData()
+    // Live subscription to stats
+    pb.collection('user_stats').subscribe('*', async (e) => {
+      if (e.record.user === user.id) {
+        const fresh = await pb.collection('user_stats').getOne(e.record.id, {
+          expand: 'last_song',
+        }).catch(() => null)
+        if (fresh) setStats(fresh)
       }
     })
 
-    return () => unsubscribe()
+    // Live subscription to history (update top artist on new listen)
+    pb.collection('history').subscribe('*', async (e) => {
+      if (e.record.user === user.id) {
+        const hist = await pb.collection('history').getFullList({
+          filter: `user = "${user.id}"`,
+          sort: '-created',
+          expand: 'song',
+          requestKey: `dash-history-live-${Date.now()}`,
+        }).catch(() => [])
+        setHistory(hist.slice(0, 5))
+
+        const artistCounts = {}
+        hist.forEach(h => {
+          const artist = h.expand?.song?.artist
+          if (artist) artistCounts[artist] = (artistCounts[artist] || 0) + 1
+        })
+        const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0]
+        if (top) setTopArtist({ name: top[0], count: top[1] })
+      }
+    })
+
+    // Live subscription to likes
+    pb.collection('likes').subscribe('*', async (e) => {
+      if (e.record.user === user.id) {
+        const liked = await pb.collection('likes').getFullList({
+          filter: `user = "${user.id}"`,
+          requestKey: `dash-likes-live-${Date.now()}`,
+        }).catch(() => [])
+        setLikedCount(liked.length)
+      }
+    })
+
+    return () => {
+      pb.collection('user_stats').unsubscribe('*')
+      pb.collection('history').unsubscribe('*')
+      pb.collection('likes').unsubscribe('*')
+    }
   }, [user?.id])
 
   const startListening = () => {
@@ -215,7 +220,9 @@ export default function Dashboard() {
                 <button className="icon-button"><Bell size={18} /></button>
                 <button className="hamburger-btn" onClick={toggleSidebar}><Menu size={24} /></button>
                 <img
-                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=be5c2b&color=fff`}
+                  src={user?.avatar
+                    ? pb.files.getURL(user, user.avatar)
+                    : `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=be5c2b&color=fff`}
                   className="user-avatar"
                   alt="Avatar"
                   onClick={() => navigate('/profile')}
@@ -392,8 +399,8 @@ export default function Dashboard() {
             <div className="song-list">
               {trending.map((song, i) => (
                 <div
-                  className={`song-row ${currentSong?.$id === song.$id ? 'active' : ''}`}
-                  key={song.$id}
+                  className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`}
+                  key={song.id}
                   onClick={() => playSong(trending, i)}
                 >
                   {song.cover_url ? (
@@ -410,10 +417,10 @@ export default function Dashboard() {
                   <span className="song-duration" style={{ marginRight: 12 }}>{fmtDuration(song.duration)}</span>
                   <button
                     className="song-action"
-                    onClick={(e) => { e.stopPropagation(); toggleLike(song.$id) }}
-                    style={{ color: isLiked(song.$id) ? 'var(--accent)' : undefined }}
+                    onClick={(e) => { e.stopPropagation(); toggleLike(song.id) }}
+                    style={{ color: isLiked(song.id) ? 'var(--accent)' : undefined }}
                   >
-                    <Heart size={18} fill={isLiked(song.$id) ? 'currentColor' : 'none'} />
+                    <Heart size={18} fill={isLiked(song.id) ? 'currentColor' : 'none'} />
                   </button>
                 </div>
               ))}

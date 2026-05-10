@@ -1,44 +1,25 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { account } from '../services/appwrite'
+import pb from '../services/pocketbase'
 
 const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState(pb.authStore.model)
 
   useEffect(() => {
-    checkUser()
+    return pb.authStore.onChange((token, model) => {
+      setUser(model)
+    })
   }, [])
 
-  const checkUser = async () => {
-    try {
-      const session = await account.get()
-      setUser({
-        id: session.$id,
-        name: session.name,
-        email: session.email,
-        avatar: null // Appwrite avatars can be handled via Avatars service
-      })
-    } catch (error) {
-      setUser(null)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const logout = async () => {
-    try {
-      await account.deleteSession('current')
-      setUser(null)
-    } catch (error) {
-      console.error(error)
-    }
+  const logout = () => {
+    pb.authStore.clear()
+    setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, logout, loading, checkUser }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ user, logout }}>
+      {children}
     </AuthContext.Provider>
   )
 }

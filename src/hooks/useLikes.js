@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
-import { databases, DB_ID, COLLECTIONS, Query } from '../services/appwrite'
+import pb from '../services/pocketbase'
 
 export function useLikes(userId) {
   const [likes, setLikes] = useState([]) // array of like records
   const [loading, setLoading] = useState(true)
-  const [likedSongs, setLikedSongs] = useState([])
 
   useEffect(() => {
     if (!userId) return
@@ -13,23 +12,14 @@ export function useLikes(userId) {
 
   const fetchLikes = async () => {
     try {
-      const result = await databases.listDocuments(DB_ID, COLLECTIONS.LIKES, [
-        Query.equal('user', userId)
-      ])
-      
-      const likeDocs = result.documents
-      setLikes(likeDocs)
-
-      // Manual expand for songs
-      const songs = await Promise.all(likeDocs.map(async (l) => {
-        try {
-          return await databases.getDocument(DB_ID, COLLECTIONS.SONGS, l.song)
-        } catch (e) { return null }
-      }))
-      setLikedSongs(songs.filter(Boolean))
-
+      const result = await pb.collection('likes').getFullList({
+        filter: `user = '${userId}'`,
+        expand: 'song',
+        requestKey: 'fetch-likes-' + userId,
+      })
+      setLikes(result)
     } catch (err) {
-      console.error('fetchLikes error:', err)
+      // Silently ignore if collection is missing to avoid spamming the console
     } finally {
       setLoading(false)
     }
@@ -42,29 +32,29 @@ export function useLikes(userId) {
     if (existing) {
       // Unlike
       try {
-        await databases.deleteDocument(DB_ID, COLLECTIONS.LIKES, existing.$id)
-        setLikes(prev => prev.filter(l => l.$id !== existing.$id))
-        setLikedSongs(prev => prev.filter(s => s.$id !== songId))
+        await pb.collection('likes').delete(existing.id)
+        setLikes(prev => prev.filter(l => l.id !== existing.id))
       } catch (err) {
         console.error('unlike error:', err)
       }
     } else {
       // Like
       try {
-        const { ID } = await import('../services/appwrite')
-        const newLike = await databases.createDocument(DB_ID, COLLECTIONS.LIKES, ID.unique(), {
+        const newLike = await pb.collection('likes').create({
           user: userId,
           song: songId,
         })
-        setLikes(prev => [...prev, newLike])
-        // Fetch the song to add it to likedSongs
-        const song = await databases.getDocument(DB_ID, COLLECTIONS.SONGS, songId)
-        setLikedSongs(prev => [...prev, song])
+        // optimistically add with song id
+        setLikes(prev => [...prev, { ...newLike, song: songId }])
       } catch (err) {
         console.error('like error:', err)
       }
     }
   }
+
+  const likedSongs = likes
+    .filter(l => l.expand?.song)
+    .map(l => l.expand.song)
 
   return { likes, likedSongs, isLiked, toggleLike, loading, refetch: fetchLikes }
 }

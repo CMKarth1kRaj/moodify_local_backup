@@ -87,20 +87,16 @@ Do not include any other text or explanation.`;
     const response = await result.response;
     let text = response.text().trim();
     
-    // Attempt to extract JSON from markdown or raw text
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      text = jsonMatch[0];
+    // Find the first { and the last } to extract the JSON
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      text = text.substring(firstBrace, lastBrace + 1);
     }
 
-    try {
-      const parsed = JSON.parse(text);
-      return parsed;
-    } catch (parseError) {
-      console.error("Gemini JSON Parse Error:", parseError, "Original text:", text);
-      // Fallback
-      return { playlistTitle: `${moodDescription} Vibes`, coverSearchTerm: moodDescription, songs: [] };
-    }
+    const parsed = JSON.parse(text);
+    return parsed;
   } catch (error) {
     console.error("Gemini Mood Parse Error:", error);
     return { playlistTitle: `${moodDescription} Vibes`, coverSearchTerm: moodDescription, songs: [] };

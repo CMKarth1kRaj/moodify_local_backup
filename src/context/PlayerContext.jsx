@@ -1,12 +1,9 @@
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
-import { databases, DB_ID, COLLECTIONS, ID } from '../services/appwrite'
-import { Query } from 'appwrite'
-import { useAuth } from './AuthContext'
+import pb from '../services/pocketbase'
 
 const PlayerContext = createContext()
 
 export function PlayerProvider({ children }) {
-  const { user } = useAuth()
   const [queue, setQueue] = useState([])
   const [currentIdx, setCurrentIdx] = useState(null)
   const [playing, setPlaying] = useState(false)
@@ -23,20 +20,20 @@ export function PlayerProvider({ children }) {
 
   // Fetch likes on mount
   useEffect(() => {
-    if (user) {
-      databases.listDocuments(DB_ID, COLLECTIONS.LIKES, [
-        Query.equal('user', user.id)
-      ])
-        .then(res => setLikes(res.documents))
+    if (pb.authStore.isValid) {
+      pb.collection('likes').getFullList({ filter: `user = '${pb.authStore.model.id}'` })
+        .then(setLikes)
         .catch(() => {})
     }
-  }, [user])
+  }, [pb.authStore.isValid])
 
   const playSong = (songs, idx) => {
     setQueue(songs)
     setCurrentIdx(idx)
     setPlaying(true)
   }
+
+
 
   const togglePlay = () => setPlaying(!playing)
   const toggleShuffle = () => setShuffle(!shuffle)
@@ -46,19 +43,16 @@ export function PlayerProvider({ children }) {
   const isLiked = (songId) => likes.some(l => l.song === songId)
 
   const toggleLike = async (songId) => {
-    if (!user) return
+    if (!pb.authStore.isValid) return
     const existing = likes.find(l => l.song === songId)
     if (existing) {
       try {
-        await databases.deleteDocument(DB_ID, COLLECTIONS.LIKES, existing.$id)
-        setLikes(prev => prev.filter(l => l.$id !== existing.$id))
+        await pb.collection('likes').delete(existing.id)
+        setLikes(prev => prev.filter(l => l.id !== existing.id))
       } catch (e) {}
     } else {
       try {
-        const res = await databases.createDocument(DB_ID, COLLECTIONS.LIKES, ID.unique(), { 
-          user: user.id, 
-          song: songId 
-        })
+        const res = await pb.collection('likes').create({ user: pb.authStore.model.id, song: songId })
         setLikes(prev => [...prev, res])
       } catch (e) {}
     }
@@ -195,24 +189,25 @@ export function PlayerProvider({ children }) {
 
   // History tracking
   useEffect(() => {
-    if (currentIdx === null || !queue[currentIdx] || !user) return
+    if (currentIdx === null || !queue[currentIdx] || !pb.authStore.isValid) return
     const song = queue[currentIdx]
     const timer = setTimeout(async () => {
       try {
-        await databases.createDocument(DB_ID, COLLECTIONS.HISTORY, ID.unique(), {
-          user: user.id,
-          song: song.$id || '', 
-        })
+        await pb.collection('history').create({
+          user: pb.authStore.model.id,
+          song: song.id || '', 
+        }, { requestKey: `hist-${Date.now()}` })
       } catch (e) {}
     }, 5000)
     return () => clearTimeout(timer)
-  }, [currentIdx, queue, user])
+  }, [currentIdx, queue])
 
   // Real-time Stats Syncing (Batch)
+  const lastSyncRef = useRef(0)
   const pendingSecondsRef = useRef(0)
 
   useEffect(() => {
-    if (!playing || !currentSong || !user) return
+    if (!playing || !currentSong || !pb.authStore.isValid) return
 
     const interval = setInterval(async () => {
       pendingSecondsRef.current += 1
@@ -223,40 +218,34 @@ export function PlayerProvider({ children }) {
         pendingSecondsRef.current = 0
         
         try {
-          const userId = user.id
+          const userId = pb.authStore.model.id
           let stats;
           
           try {
-            const res = await databases.listDocuments(DB_ID, COLLECTIONS.USER_STATS, [
-              Query.equal('user', userId)
-            ])
-            stats = res.documents[0]
-
-            if (stats) {
-              await databases.updateDocument(DB_ID, COLLECTIONS.USER_STATS, stats.$id, {
-                total_listening_time: stats.total_listening_time + secondsToSync,
-                last_song: currentSong.$id,
-                favorite_artist: currentSong.artist,
-              })
-            } else {
-              await databases.createDocument(DB_ID, COLLECTIONS.USER_STATS, ID.unique(), {
-                user: userId,
-                total_listening_time: secondsToSync,
-                last_song: currentSong.$id,
-                favorite_artist: currentSong.artist
-              })
-            }
+            stats = await pb.collection('user_stats').getFirstListItem(`user="${userId}"`)
+            await pb.collection('user_stats').update(stats.id, {
+              'total_listening_time+': secondsToSync,
+              'last_song': currentSong.id,
+              'favorite_artist': currentSong.artist, // Simple logic: last played artist for now
+            })
           } catch (err) {
-            console.error("Stats sync error", err)
+            // Create stats record if it doesn't exist
+            await pb.collection('user_stats').create({
+              user: userId,
+              total_listening_time: secondsToSync,
+              last_song: currentSong.id,
+              favorite_artist: currentSong.artist
+            })
           }
         } catch (e) {
+          // If sync fails, add back to pending
           pendingSecondsRef.current += secondsToSync
         }
       }
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [playing, currentSong?.$id, user])
+  }, [playing, currentSong?.id])
 
   return (
     <PlayerContext.Provider value={{ 

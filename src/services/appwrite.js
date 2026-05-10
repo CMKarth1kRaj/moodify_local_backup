@@ -19,7 +19,8 @@ export const COLLECTIONS = {
     JAM_ROOMS: 'jam_rooms',
     MESSAGES: 'messages',
     USER_STATS: 'user_stats',
-    PLAYLISTS: 'playlists'
+    PLAYLISTS: 'playlists',
+    TYPING: 'typing'
 };
 
 export default client;

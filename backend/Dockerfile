@@ -20,5 +20,5 @@ RUN chmod +x /pb/pocketbase
 
 EXPOSE 8080
 
-# Start PocketBase using the PORT env var if it exists, otherwise default to 8080
-CMD ["sh", "-c", "./pocketbase serve --http=0.0.0.0:${PORT:-8080}"]
+# Start PocketBase (Creates a temp admin then starts the server)
+CMD ["sh", "-c", "./pocketbase admin create admin@moodify.com moodify12345 || true && ./pocketbase serve --http=0.0.0.0:${PORT:-8080}"]

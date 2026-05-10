@@ -14,7 +14,9 @@ RUN unzip /tmp/pb.zip -d /pb/
 COPY ./pb_migrations /pb/pb_migrations
 COPY ./pb_schema.json /pb/pb_schema.json
 
+RUN chmod +x /pb/pocketbase
+
 EXPOSE 8080
 
-# Start PocketBase
-CMD ["/pb/pocketbase", "serve", "--http=0.0.0.0:8080"]
+# Start PocketBase using the PORT env var if it exists, otherwise default to 8080
+CMD ["sh", "-c", "/pb/pocketbase serve --http=0.0.0.0:${PORT:-8080}"]

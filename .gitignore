@@ -27,7 +27,9 @@ dist-ssr
 .env
 .env.local
 
-# PocketBase binary and database (do not commit)
+# PocketBase binary and database
 backend/pocketbase.exe
 backend/pb_data/
-backend/pb_migrations/
+# Allow migrations and schema
+!backend/pb_migrations/
+!backend/pb_schema.json

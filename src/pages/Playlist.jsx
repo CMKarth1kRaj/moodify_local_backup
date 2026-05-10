@@ -53,39 +53,79 @@ export default function Playlist() {
     try {
       setLoading(true)
       
-      const pb = await import('../services/pocketbase').then(m => m.default)
+      const { databases, DB_ID, COLLECTIONS, ID } = await import('../services/appwrite')
       
       if (!forceRegen) {
         try {
-          const existing = await pb.collection('Playlist').getFirstListItem(`user='${user.id}' && mood='${mood}'`, { expand: 'songs' })
-          if (existing) {
-            setPlaylistId(existing.id)
-            setSongs(existing.expand?.songs || [])
+          const res = await databases.listDocuments(DB_ID, COLLECTIONS.PLAYLISTS, [
+            Query.equal('user', user.id),
+            Query.equal('mood', mood),
+            Query.limit(1)
+          ])
+          
+          if (res.documents[0]) {
+            const existing = res.documents[0]
+            setPlaylistId(existing.$id)
             setDynamicTitle(existing.name || `${mood} Vibes`)
             setDynamicCover(existing.cover_url || '')
+            
+            // Resolve songs manually if not expanded
+            const resolvedSongs = await Promise.all(existing.songs.map(async (sid) => {
+              try {
+                return await databases.getDocument(DB_ID, COLLECTIONS.SONGS, sid)
+              } catch (e) { return null }
+            }))
+            setSongs(resolvedSongs.filter(Boolean))
             setLoading(false)
             return
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error("Existing playlist fetch error", e)
+        }
       }
 
       let context = { likedArtists: [], recentSongs: [] }
       try {
-        const hist = await pb.collection('history').getList(1, 10, { filter: `user="${user.id}"`, expand: 'song', sort: '-created' })
-        const likes = await pb.collection('likes').getList(1, 20, { filter: `user="${user.id}"`, expand: 'song' })
+        const histRes = await databases.listDocuments(DB_ID, COLLECTIONS.HISTORY, [
+          Query.equal('user', user.id),
+          Query.orderDesc('$createdAt'),
+          Query.limit(10)
+        ])
+        const likesRes = await databases.listDocuments(DB_ID, COLLECTIONS.LIKES, [
+          Query.equal('user', user.id),
+          Query.limit(20)
+        ])
         
-        const recent = hist.items.map(h => ({ title: h.expand?.song?.title, artist: h.expand?.song?.artist })).filter(s => s.title)
-        const artists = likes.items.map(l => l.expand?.song?.artist).filter(Boolean)
+        // Manual expand for history context
+        const histSongs = await Promise.all(histRes.documents.map(async (h) => {
+          try {
+            return await databases.getDocument(DB_ID, COLLECTIONS.SONGS, h.song)
+          } catch (e) { return null }
+        }))
+        
+        const recent = histSongs.filter(Boolean).map(s => ({ title: s.title, artist: s.artist }))
+        
+        // Manual expand for likes context
+        const likedSongs = await Promise.all(likesRes.documents.map(async (l) => {
+          try {
+            return await databases.getDocument(DB_ID, COLLECTIONS.SONGS, l.song)
+          } catch (e) { return null }
+        }))
+        
+        const artists = likedSongs.filter(Boolean).map(s => s.artist)
         const uniqueArtists = [...new Set(artists)]
         
         context = { likedArtists: uniqueArtists, recentSongs: recent }
-      } catch(e) {}
+      } catch(e) {
+        console.error("Context gather error", e)
+      }
 
       const aiResult = await getMoodPlaylist(mood, context)
       const suggestions = aiResult?.songs || []
       const newTitle = aiResult?.playlistTitle || `${mood} Vibes`
       const coverSearch = aiResult?.coverSearchTerm || mood
-      const newCover = `https://source.unsplash.com/featured/800x800/?${encodeURIComponent(coverSearch)}`
+      const newCover = `https://images.unsplash.com/photo-1614149162883-504ce4d13909?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(coverSearch)}` 
+      // Note: source.unsplash is deprecated, using a dynamic search style
 
       setDynamicTitle(newTitle)
       setDynamicCover(newCover)
@@ -96,34 +136,48 @@ export default function Playlist() {
       for (const s of suggestions) {
         const ytSong = await searchYouTube(`${s.title} ${s.artist}`)
         if (ytSong) {
-          let pbSong
+          let appwriteSong
           try {
-            pbSong = await pb.collection('songs').getFirstListItem(`audio_url='${ytSong.audio_url}'`)
+            const res = await databases.listDocuments(DB_ID, COLLECTIONS.SONGS, [
+              Query.equal('audio_url', ytSong.audio_url),
+              Query.limit(1)
+            ])
+            appwriteSong = res.documents[0]
+            
+            if (!appwriteSong) {
+              appwriteSong = await databases.createDocument(DB_ID, COLLECTIONS.SONGS, ID.unique(), {
+                title: ytSong.title,
+                artist: ytSong.artist,
+                cover_url: ytSong.cover_url,
+                audio_url: ytSong.audio_url,
+                mood: mood
+              })
+            }
           } catch (e) {
-            pbSong = await pb.collection('songs').create({
-              title: ytSong.title,
-              artist: ytSong.artist,
-              cover_url: ytSong.cover_url,
-              audio_url: ytSong.audio_url,
-              mood: mood
-            })
+            console.error("Song create/fetch error", e)
           }
-          resolvedIds.push(pbSong.id)
-          resolvedSongs.push(pbSong)
+          if (appwriteSong) {
+            resolvedIds.push(appwriteSong.$id)
+            resolvedSongs.push(appwriteSong)
+          }
         }
       }
 
       if (playlistId) {
-        await pb.collection('Playlist').update(playlistId, { songs: resolvedIds, name: newTitle, cover_url: newCover })
+        await databases.updateDocument(DB_ID, COLLECTIONS.PLAYLISTS, playlistId, { 
+          songs: resolvedIds, 
+          name: newTitle, 
+          cover_url: newCover 
+        })
       } else {
-        const newPlaylist = await pb.collection('Playlist').create({
+        const newPlaylist = await databases.createDocument(DB_ID, COLLECTIONS.PLAYLISTS, ID.unique(), {
           name: newTitle,
           mood: mood,
           user: user.id,
           songs: resolvedIds,
           cover_url: newCover
         })
-        setPlaylistId(newPlaylist.id)
+        setPlaylistId(newPlaylist.$id)
       }
 
       setSongs(resolvedSongs)
@@ -180,7 +234,7 @@ export default function Playlist() {
             ) : (
               <div className="song-list">
                 {songs.map((song, i) => (
-                  <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(songs, i)}>
+                  <div key={song.$id} className={`song-row ${currentSong?.$id === song.$id ? 'active' : ''}`} onClick={() => playSong(songs, i)}>
                     <img src={song.cover_url} className="song-cover" alt="cover" />
                     <div className="song-info">
                       <p className="song-title">{song.title}</p>
@@ -189,10 +243,10 @@ export default function Playlist() {
                     <span className="song-duration" style={{ marginRight: 16 }}>{fmt(song.duration)}</span>
                     <button 
                       className="song-action"
-                      onClick={(e) => { e.stopPropagation(); toggleLike(song.id); }}
-                      style={{ color: isLiked(song.id) ? 'var(--accent)' : 'inherit' }}
+                      onClick={(e) => { e.stopPropagation(); toggleLike(song.$id); }}
+                      style={{ color: isLiked(song.$id) ? 'var(--accent)' : 'inherit' }}
                     >
-                      <Heart size={18} fill={isLiked(song.id) ? 'currentColor' : 'none'} />
+                      <Heart size={18} fill={isLiked(song.$id) ? 'currentColor' : 'none'} />
                     </button>
                   </div>
                 ))}

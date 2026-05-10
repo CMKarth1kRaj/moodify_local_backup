@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import pb from '../services/pocketbase'
+import { account, ID } from '../services/appwrite'
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true)
@@ -9,7 +9,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [err, setErr] = useState('')
-  const { user } = useAuth()
+  const { checkUser } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
@@ -17,11 +17,12 @@ export default function Login() {
     setErr('')
     try {
       if (isLogin) {
-        await pb.collection('users').authWithPassword(email, password)
+        await account.createEmailPasswordSession(email, password)
       } else {
-        await pb.collection('users').create({ email, password, passwordConfirm: password, name })
-        await pb.collection('users').authWithPassword(email, password)
+        await account.create(ID.unique(), email, password, name)
+        await account.createEmailPasswordSession(email, password)
       }
+      await checkUser()
       navigate('/dashboard')
     } catch (error) {
       setErr(error.message)

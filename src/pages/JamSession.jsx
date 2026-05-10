@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import pb from '../services/pocketbase'
+import client, { databases, DB_ID, COLLECTIONS, ID } from '../services/appwrite'
+import { Query } from 'appwrite'
 import { useAuth } from '../context/AuthContext'
 import { usePlayer } from '../context/PlayerContext'
 import Sidebar from '../components/Sidebar'
@@ -41,20 +42,43 @@ function JamSession() {
 
   useEffect(() => {
     fetchRooms()
-    pb.collection('songs').getFullList().then(setAvailableSongs).catch(console.error)
-    pb.collection('jam_rooms').subscribe('*', () => { fetchRooms() })
-    return () => { pb.collection('jam_rooms').unsubscribe('*') }
+    databases.listDocuments(DB_ID, COLLECTIONS.SONGS).then(res => setAvailableSongs(res.documents)).catch(console.error)
+    
+    const unsubscribe = client.subscribe([`databases.${DB_ID}.collections.${COLLECTIONS.JAM_ROOMS}.documents`], (e) => {
+      fetchRooms()
+    })
+    return () => unsubscribe()
   }, [])
 
   const fetchRooms = async () => {
     try {
-      const result = await pb.collection('jam_rooms').getFullList({
-        expand: 'host,current_songs',
-        sort: '-created',
-      })
-      setRooms(result)
+      const result = await databases.listDocuments(DB_ID, COLLECTIONS.JAM_ROOMS, [
+        Query.orderDesc('$createdAt')
+      ])
+      
+      // Manual expand for host and song
+      const expandedRooms = await Promise.all(result.documents.map(async (r) => {
+        let host = r.host
+        let song = r.current_songs
+        
+        try {
+          // If Appwrite stores them as IDs, fetch the actual documents
+          // Note: If you set up relationships in Appwrite, this might be automatic
+          if (typeof host === 'string') {
+             // For users, you might need a 'users' collection or use account.get (but only for current user)
+             // We'll assume a 'users' collection or metadata
+          }
+          if (typeof song === 'string') {
+             song = await databases.getDocument(DB_ID, COLLECTIONS.SONGS, song)
+          }
+        } catch (e) {}
+        
+        return { ...r, host_data: host, song_data: song }
+      }))
+      
+      setRooms(expandedRooms)
     } catch (err) {
-      if (!err.isAbort) console.error(err)
+      console.error(err)
     } finally {
       setLoading(false)
     }
@@ -64,19 +88,16 @@ function JamSession() {
     if (!roomName.trim()) return
     setCreating(true)
     try {
-      const room = await pb.collection('jam_rooms').create({
+      const room = await databases.createDocument(DB_ID, COLLECTIONS.JAM_ROOMS, ID.unique(), {
         name: roomName,
         host: user.id,
-        is_live: true,
         listeners: 1,
         playback_position: 0,
-        current_songs: selectedSong?.id || null,
+        current_songs: selectedSong?.$id || null,
         is_playing: !!selectedSong
       })
-      const expanded = await pb.collection('jam_rooms').getOne(room.id, {
-        expand: 'host,current_songs',
-      })
-      setActiveRoom(expanded)
+      
+      setActiveRoom(room)
       setView('room')
       setShowCreate(false)
       setRoomName('')
@@ -89,7 +110,7 @@ function JamSession() {
 
   const joinRoom = async (room) => {
     try {
-      await pb.collection('jam_rooms').update(room.id, {
+      await databases.updateDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id, {
         listeners: (room.listeners || 0) + 1,
       })
     } catch {}
@@ -99,7 +120,7 @@ function JamSession() {
 
   const leaveRoom = async (room) => {
     try {
-      await pb.collection('jam_rooms').update(room.id, {
+      await databases.updateDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id, {
         listeners: Math.max((room.listeners || 1) - 1, 0),
       })
     } catch {}
@@ -112,7 +133,7 @@ function JamSession() {
     e.stopPropagation()
     if (!confirm('Delete this room?')) return
     try {
-      await pb.collection('jam_rooms').delete(roomId)
+      await databases.deleteDocument(DB_ID, COLLECTIONS.JAM_ROOMS, roomId)
       fetchRooms()
     } catch (err) {
       console.error(err)
@@ -159,13 +180,13 @@ function JamSession() {
             ) : (
               <div className="room-grid">
                 {rooms.map(room => {
-                  const song = room.expand?.current_songs
-                  const host = room.expand?.host
+                  const song = room.song_data
+                  const host = room.host_data
                   const meta = moodMeta[song?.mood || 'Chill'] || moodMeta.Chill
-                  const isHost = user?.id === (typeof room.host === 'object' ? room.host.id : room.host) || user?.id === room.host
+                  const isHost = user?.id === room.host
 
                   return (
-                    <div key={room.id} className="item-card" onClick={() => joinRoom(room)}>
+                    <div key={room.$id} className="item-card" onClick={() => joinRoom(room)}>
                       <div className="item-card-cover" style={{ background: `linear-gradient(135deg, ${meta.color}44, ${meta.color}11)` }}>
                         {meta.emoji}
                         <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', padding: '4px 10px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -181,7 +202,7 @@ function JamSession() {
                         </div>
                       </div>
                       {isHost && (
-                        <button onClick={(e) => deleteRoom(e, room.id)} 
+                        <button onClick={(e) => deleteRoom(e, room.$id)} 
                           style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(255,107,107,0.2)', border: 'none', color: '#ff6b6b', padding: 8, borderRadius: 10, cursor: 'pointer' }}>
                           <Trash2 size={16} />
                         </button>
@@ -219,12 +240,12 @@ function JamSession() {
                  />
                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 12, padding: 8 }}>
                     {availableSongs.filter(s => s.title.toLowerCase().includes(createSearch.toLowerCase()) || s.artist.toLowerCase().includes(createSearch.toLowerCase())).map(s => (
-                      <div key={s.id} 
+                      <div key={s.$id} 
                         onClick={() => setSelectedSong(s)}
                         style={{ 
                           padding: '8px 12px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
-                          background: selectedSong?.id === s.id ? 'var(--accent-light)' : 'transparent',
-                          border: selectedSong?.id === s.id ? '1px solid var(--accent)' : '1px solid transparent'
+                          background: selectedSong?.$id === s.$id ? 'var(--accent-light)' : 'transparent',
+                          border: selectedSong?.$id === s.$id ? '1px solid var(--accent)' : '1px solid transparent'
                         }}
                       >
                          <img src={s.cover_url} style={{ width: 32, height: 32, borderRadius: 6 }} alt="" />
@@ -287,7 +308,7 @@ function RoomView({ room, user, onBack, playSong }) {
     if (!isHost) return
     const interval = setInterval(() => {
        if (playing) {
-         pb.collection('jam_rooms').update(room.id, { playback_position: progressRef.current })
+         databases.updateDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id, { playback_position: progressRef.current })
        }
     }, 100)
     return () => clearInterval(interval)
@@ -295,29 +316,30 @@ function RoomView({ room, user, onBack, playSong }) {
 
   const fetchRoom = async () => {
     try {
-      const r = await pb.collection('jam_rooms').getOne(room.id, { expand: 'host,current_songs' })
+      const r = await databases.getDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id)
+      
+      // Manual expand for song
+      if (r.current_songs && typeof r.current_songs === 'string') {
+        const song = await databases.getDocument(DB_ID, COLLECTIONS.SONGS, r.current_songs)
+        r.song_data = song
+      }
+
       setCurrentRoom(r)
       
       if (!isHost) {
-        // Synchronize play/pause state for listeners only if changed
         if (playingRef.current !== r.is_playing) setPlaying(r.is_playing)
-        
-        // Sync position if drift is > 3 seconds
         if (Math.abs(progressRef.current - r.playback_position) > 3) {
            seekTo(r.playback_position)
         }
-        
-        // If the song changed, we need to play it
-        if (r.expand?.current_songs && r.expand.current_songs.id !== lastSongIdRef.current) {
-           lastSongIdRef.current = r.expand.current_songs.id
-           playSong([r.expand.current_songs], 0)
+        if (r.song_data && r.song_data.$id !== lastSongIdRef.current) {
+           lastSongIdRef.current = r.song_data.$id
+           playSong([r.song_data], 0)
         }
       } else {
-        // Host needs to update ref too
-        if (r.expand?.current_songs) {
-           if (r.expand.current_songs.id !== lastSongIdRef.current) {
-              lastSongIdRef.current = r.expand.current_songs.id
-              playSong([r.expand.current_songs], 0)
+        if (r.song_data) {
+           if (r.song_data.$id !== lastSongIdRef.current) {
+              lastSongIdRef.current = r.song_data.$id
+              playSong([r.song_data], 0)
            }
         }
       }
@@ -328,67 +350,59 @@ function RoomView({ room, user, onBack, playSong }) {
     fetchMessages()
     fetchRoom()
 
-    let unsubMessages;
-    let unsubRoom;
-    let unsubTyping;
+    const unsubscribe = client.subscribe([
+      `databases.${DB_ID}.collections.${COLLECTIONS.MESSAGES}.documents`,
+      `databases.${DB_ID}.collections.${COLLECTIONS.JAM_ROOMS}.documents`,
+      `databases.${DB_ID}.collections.typing.documents` // Assuming 'typing' collection exists
+    ], (response) => {
+      if (response.events.some(e => e.includes(`collections.${COLLECTIONS.MESSAGES}`))) fetchMessages()
+      if (response.events.some(e => e.includes(`collections.${COLLECTIONS.JAM_ROOMS}`))) fetchRoom()
+      if (response.events.some(e => e.includes('collections.typing'))) fetchTyping()
+    })
 
-    const setupSubscriptions = async () => {
-      unsubMessages = await pb.collection('messages').subscribe('*', (e) => {
-        if (e.record.room === room.id) fetchMessages()
-      })
-      unsubRoom = await pb.collection('jam_rooms').subscribe(room.id, () => {
-        fetchRoom()
-      })
-      unsubTyping = await pb.collection('typing').subscribe('*', (e) => {
-        if (e.record.room === room.id) fetchTyping()
-      }, { expand: 'user' })
-    }
-
-    setupSubscriptions()
     fetchTyping()
 
-    return () => {
-      if (unsubMessages) unsubMessages()
-      if (unsubRoom) unsubRoom()
-      if (unsubTyping) unsubTyping()
-    }
-  }, [room.id])
+    return () => unsubscribe()
+  }, [room.$id])
 
   const fetchTyping = async () => {
     try {
-      const result = await pb.collection('typing').getFullList({
-        filter: `room = '${room.id}' && user != '${user.id}'`,
-        expand: 'user'
-      })
-      setTypingUsers(result.map(t => t.expand?.user?.name || t.expand?.user?.email?.split('@')[0] || 'Someone'))
+      // Note: Appwrite doesn't allow 'user != current' filter easily without complex queries
+      // We'll fetch all and filter locally for simplicity
+      const result = await databases.listDocuments(DB_ID, 'typing', [
+        Query.equal('room', room.$id)
+      ])
+      const others = result.documents.filter(t => t.user !== user.id)
+      setTypingUsers(others.map(t => t.user_name || 'Someone'))
     } catch (e) {}
   }
 
   const handleTyping = async () => {
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     else {
-      // Start typing
       try {
-        await pb.collection('typing').create({ user: user.id, room: room.id })
-      } catch (e) {} // Might already exist due to race condition
+        await databases.createDocument(DB_ID, 'typing', user.id, { 
+          user: user.id, 
+          room: room.$id,
+          user_name: user.name || user.email.split('@')[0]
+        })
+      } catch (e) {}
     }
 
     typingTimeoutRef.current = setTimeout(async () => {
       typingTimeoutRef.current = null
       try {
-        const existing = await pb.collection('typing').getFirstListItem(`user='${user.id}' && room='${room.id}'`)
-        if (existing) await pb.collection('typing').delete(existing.id)
+        await databases.deleteDocument(DB_ID, 'typing', user.id)
       } catch (e) {}
     }, 3000)
   }
 
   const fetchMessages = async () => {
-    const result = await pb.collection('messages').getFullList({
-      filter: `room = '${room.id}'`,
-      expand: 'user',
-      sort: 'created',
-    })
-    setMessages(result)
+    const result = await databases.listDocuments(DB_ID, COLLECTIONS.MESSAGES, [
+      Query.equal('room', room.$id),
+      Query.orderAsc('$createdAt')
+    ])
+    setMessages(result.documents)
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
@@ -396,7 +410,12 @@ function RoomView({ room, user, onBack, playSong }) {
     if (!message.trim()) return
     const text = message
     setMessage('')
-    await pb.collection('messages').create({ room: room.id, user: user.id, text })
+    await databases.createDocument(DB_ID, COLLECTIONS.MESSAGES, ID.unique(), { 
+      room: room.$id, 
+      user: user.id, 
+      text,
+      user_name: user.name || user.email.split('@')[0]
+    })
   }
 
   const song = currentRoom.expand?.current_songs
@@ -427,7 +446,7 @@ function RoomView({ room, user, onBack, playSong }) {
                        {isHost && (
                          <button onClick={async () => {
                            if (confirm('End this session for everyone?')) {
-                             await pb.collection('jam_rooms').delete(room.id)
+                             await databases.deleteDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id)
                              onBack()
                            }
                          }} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
@@ -460,7 +479,7 @@ function RoomView({ room, user, onBack, playSong }) {
                              const rect = e.currentTarget.getBoundingClientRect()
                              const p = (e.clientX - rect.left) / rect.width
                              seekTo(p * duration)
-                             pb.collection('jam_rooms').update(room.id, { playback_position: p * duration })
+                             databases.updateDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id, { playback_position: p * duration })
                           } : undefined}>
                         <div style={{ height: '100%', width: `${(progress / (duration || 1)) * 100}%`, background: meta.color, borderRadius: 99, transition: 'width 0.1s linear' }} />
                      </div>
@@ -475,7 +494,7 @@ function RoomView({ room, user, onBack, playSong }) {
                       <button onClick={async () => {
                         const newState = !currentRoom.is_playing
                         togglePlay()
-                        await pb.collection('jam_rooms').update(room.id, { is_playing: newState })
+                        await databases.updateDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id, { is_playing: newState })
                       }} className="btn-play" style={{ width: 56, height: 56, background: meta.color }}>
                         {currentRoom.is_playing ? <span style={{ fontSize: 24 }}>⏸</span> : <Play size={24} fill="black" style={{ marginLeft: 4 }} />}
                       </button>
@@ -512,8 +531,8 @@ function RoomView({ room, user, onBack, playSong }) {
                  
                  <div style={{ flex: 1, overflowY: 'auto' }} className="song-list">
                     {songs.filter(s => s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.artist.toLowerCase().includes(searchQuery.toLowerCase())).map(s => (
-                      <div key={s.id} className="song-row" onClick={async () => {
-                         await pb.collection('jam_rooms').update(room.id, { current_songs: s.id, is_playing: true, playback_position: 0 })
+                      <div key={s.$id} className="song-row" onClick={async () => {
+                         await databases.updateDocument(DB_ID, COLLECTIONS.JAM_ROOMS, room.$id, { current_songs: s.$id, is_playing: true, playback_position: 0 })
                          playSong([s], 0)
                          setShowSongPicker(false)
                       }}>
@@ -548,11 +567,11 @@ function RoomView({ room, user, onBack, playSong }) {
                  </div>
                )}
                 {messages.map(m => {
-                   const mUserName = m.expand?.user?.name || m.expand?.user?.email?.split('@')[0] || (m.user ? `Member ${m.user.slice(0,4)}` : 'Member')
+                   const mUserName = m.user_name || (m.user ? `Member ${m.user.slice(0,4)}` : 'Member')
                    const isMe = m.user === user?.id
 
                    return (
-                     <div key={m.id} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                     <div key={m.$id} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
                         {!isMe && <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6, marginLeft: 12 }}>{mUserName}</p>}
                         <div style={{ 
                           padding: '12px 16px', borderRadius: 20, 

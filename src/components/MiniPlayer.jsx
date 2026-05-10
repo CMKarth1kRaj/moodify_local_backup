@@ -1,5 +1,17 @@
-import { useNavigate } from 'react-router-dom'
 import { usePlayer } from '../context/PlayerContext'
+import { useNavigate } from 'react-router-dom'
+import { 
+  Play, 
+  Pause, 
+  SkipBack, 
+  SkipForward, 
+  Volume2, 
+  VolumeX,
+  Shuffle, 
+  Repeat,
+  Maximize2,
+  Heart
+} from 'lucide-react'
 
 function fmt(s) {
   if (!s) return '0:00'
@@ -7,62 +19,98 @@ function fmt(s) {
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
-function MiniPlayer() {
-  const { currentSong, playing, progress, duration, togglePlay, next, prev, seek } = usePlayer()
+export default function MiniPlayer() {
+  const { 
+    currentSong, playing, progress, duration, 
+    shuffle, repeat, muted, 
+    toggleShuffle, toggleRepeat, toggleLike, isLiked, toggleMute,
+    togglePlay, next, prev 
+  } = usePlayer()
   const navigate = useNavigate()
 
   if (!currentSong) return null
 
+  const pct = duration ? (progress / duration) * 100 : 0
+
   return (
-    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(8,9,18,0.97)', backdropFilter: 'blur(24px)', borderTop: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 20, zIndex: 999 }}>
-
-      {/* Album art + song info */}
-      <div onClick={() => navigate('/player')}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240, cursor: 'pointer' }}
-        onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
-        onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-
-        {/* Album cover */}
-        <div style={{ width: 48, height: 48, borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}>
-          {currentSong.cover_url
-            ? <img src={currentSong.cover_url} alt="cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #00d4ff22, #a855f722)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🎵</div>
-          }
-        </div>
-
-        <div style={{ minWidth: 0 }}>
-          <p style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentSong.title}</p>
-          <p style={{ color: 'var(--muted2)', fontSize: 12, marginTop: 2 }}>{currentSong.artist}</p>
-        </div>
-      </div>
-
-      {/* Controls + progress */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <button onClick={prev} style={{ background: 'none', border: 'none', color: 'var(--muted2)', cursor: 'pointer', fontSize: 18 }}>⏮</button>
-          <button onClick={togglePlay}
-            style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'linear-gradient(135deg, #00d4ff, #a855f7)', color: '#000', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>
-            {playing ? '⏸' : '▶'}
-          </button>
-          <button onClick={next} style={{ background: 'none', border: 'none', color: 'var(--muted2)', cursor: 'pointer', fontSize: 18 }}>⏭</button>
-        </div>
-        <div style={{ width: '100%', maxWidth: 500, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 32 }}>{fmt(progress)}</span>
-          <div style={{ flex: 1, height: 3, background: 'var(--border)', borderRadius: 99, cursor: 'pointer' }}
-            onClick={e => seek(e, e.currentTarget)}>
-            <div style={{ width: `${duration ? (progress / duration) * 100 : 0}%`, height: '100%', background: 'linear-gradient(90deg, #00d4ff, #a855f7)', borderRadius: 99, transition: 'width 0.5s linear' }} />
+    <div className="player-wrapper">
+      <div 
+        className="player-bar" 
+        onClick={(e) => {
+          if (e.target.closest('button')) return
+          navigate('/player')
+        }}
+      >
+        
+        {/* Track Info */}
+        <div className="player-track-info">
+          <div className="player-cover-container">
+             {currentSong.cover_url ? (
+               <img src={currentSong.cover_url} className="player-cover-img" alt="cover" />
+             ) : (
+               <div className="player-cover-fallback">
+                 <Maximize2 size={20} />
+               </div>
+             )}
           </div>
-          <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 32, textAlign: 'right' }}>{fmt(duration)}</span>
+          <div className="player-meta">
+            <p className="player-song-title">{currentSong.title}</p>
+            <p className="player-song-artist">{currentSong.artist}</p>
+          </div>
+          <button 
+            className="player-icon-btn" 
+            style={{ marginLeft: 8, color: isLiked(currentSong.id) ? 'var(--accent)' : 'inherit' }}
+            onClick={(e) => { e.stopPropagation(); toggleLike(currentSong.id); }}
+          >
+            <Heart size={20} fill={isLiked(currentSong.id) ? 'currentColor' : 'none'} />
+          </button>
         </div>
-      </div>
 
-      {/* Open player */}
-      <button onClick={() => navigate('/player')}
-        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 14px', color: 'var(--muted2)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>
-        Open ↑
-      </button>
+        {/* Playback Controls */}
+        <div className="player-center-controls">
+          <div className="player-buttons">
+            <button className="player-icon-btn" onClick={prev}>
+              <SkipBack size={20} fill="currentColor" />
+            </button>
+            <button className="player-play-btn" onClick={togglePlay}>
+              {playing ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" style={{ marginLeft: 2 }} />}
+            </button>
+            <button className="player-icon-btn" onClick={next}>
+              <SkipForward size={20} fill="currentColor" />
+            </button>
+          </div>
+          
+          <div className="player-progress-area">
+            <span className="player-time">{fmt(progress)}</span>
+            <div className="player-progress-bar">
+              <div className="player-progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="player-time">{fmt(duration)}</span>
+          </div>
+        </div>
+
+        {/* Volume & Extra */}
+        <div className="player-extras-panel">
+          <button className="player-icon-btn secondary" onClick={toggleMute}>
+            {muted ? <VolumeX size={18} color="var(--accent)" /> : <Volume2 size={18} />}
+          </button>
+          <button 
+            className="player-icon-btn secondary" 
+            style={{ color: shuffle ? 'var(--accent)' : 'inherit' }}
+            onClick={toggleShuffle}
+          >
+            <Shuffle size={18} />
+          </button>
+          <button 
+            className="player-icon-btn secondary" 
+            style={{ color: repeat ? 'var(--accent)' : 'inherit' }}
+            onClick={toggleRepeat}
+          >
+            <Repeat size={18} />
+          </button>
+        </div>
+
+      </div>
     </div>
   )
 }
-
-export default MiniPlayer
